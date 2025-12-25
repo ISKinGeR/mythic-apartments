@@ -1,15 +1,6 @@
 function RegisterMiddleware()
     Middleware:Add("Characters:Creating", function(source, cData)
 		
-		
-		local randomApt = GetRandomAvailableApartment()
-		if randomApt then
-			
-			return {{
-				Apartment = 0 
-			}}
-		end
-		
 		return {{
 			Apartment = 0 
 		}}
