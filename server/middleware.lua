@@ -16,7 +16,7 @@ function RegisterMiddleware()
 	end)
 
     Middleware:Add('Characters:Spawning', function(source)
-        local player = exports['base']:FetchComponent('Fetch'):Source(source)
+        local player = exports['mythic-base']:FetchComponent('Fetch'):Source(source)
         local char = player:GetData('Character')
         if not char then
             return
