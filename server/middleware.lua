@@ -81,17 +81,18 @@ function RegisterMiddleware()
 		print(string.format("^3[APARTMENTS DEBUG] Characters:GetSpawnPoints - GetCharacterApartment returned: %s^7", tostring(aptId)))
 		
 		
+		
 		if not aptId or aptId == 0 then
 			print(string.format("^1[APARTMENTS DEBUG] Characters:GetSpawnPoints - Character has NO apartment (aptId: %s), returning empty spawns^7", tostring(aptId)))
 			return spawns
 		end
 		
 		
-			print(string.format("^3[APARTMENTS DEBUG] Characters:GetSpawnPoints - Character has apartment %s, fetching apartment data^7", tostring(aptId)))
-			local apt = _aptData[aptId]
-			if apt then
-				
-				if apt.interior and apt.interior.wakeup then
+		print(string.format("^3[APARTMENTS DEBUG] Characters:GetSpawnPoints - Character has apartment %s, fetching apartment data^7", tostring(aptId)))
+		local apt = _aptData[aptId]
+		if apt then
+			
+			if apt.interior and apt.interior.wakeup then
 				local roomLabel = apt.roomLabel or aptId
 				local buildingLabel = apt.buildingLabel or apt.buildingName or "Apartment"
 				local label = string.format("%s - Room %s", buildingLabel, roomLabel)
@@ -114,12 +115,12 @@ function RegisterMiddleware()
 					
 					
 					local locationData = {
-							x = wakeupX,
-							y = wakeupY,
-							z = wakeupZ,
-							h = wakeupH
-						}
-						
+						x = wakeupX,
+						y = wakeupY,
+						z = wakeupZ,
+						h = wakeupH
+					}
+					
 					table.insert(spawns, {
 						id = string.format("APT:%s:%s", aptId, cData.SID),
 						label = label,
