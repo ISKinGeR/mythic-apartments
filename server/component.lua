@@ -15,6 +15,9 @@ function RetrieveComponents()
 	Pwnzor = exports["mythic-base"]:FetchComponent("Pwnzor")
 	Doors = exports["mythic-base"]:FetchComponent("Doors")
 	Phone = exports["mythic-base"]:FetchComponent("Phone")
+	if Middleware then
+		RegisterMiddleware()
+	end
 end
 
 AddEventHandler("Core:Shared:Ready", function()
@@ -36,7 +39,7 @@ AddEventHandler("Core:Shared:Ready", function()
 		end
 		RetrieveComponents()
 		RegisterCallbacks()
-		RegisterMiddleware()
+		
 		Startup()
 		
 		

@@ -219,6 +219,41 @@ function UpdateAvailableApartments(showDebug)
 			dbCount = dbCount + 1
 		end
 		if dbCount ~= localAssignedCount then
+			print(string.format("^1[APARTMENTS DEBUG] UpdateAvailableApartments - Mismatch detected! Syncing local table with database^7"))
+			-- Sync local table with database
+			_assignedApartments = {}
+			_apartmentAssignments = {}
+			
+			-- Reload from database to fix the mismatch
+			if Database then
+				local p2 = promise.new()
+				Database.Game:find({
+					collection = "apartment_assignments",
+					query = {}
+				}, function(success, assignments)
+					if success and assignments then
+						for _, assignment in ipairs(assignments) do
+							if assignment.apartmentId and assignment.characterSID then
+								_assignedApartments[assignment.apartmentId] = {
+									characterSID = assignment.characterSID,
+									characterID = assignment.characterID,
+									assignedAt = assignment.assignedAt or (os.time() * 1000)
+								}
+								local charSID = assignment.characterSID
+								_apartmentAssignments[charSID] = assignment.apartmentId
+								_apartmentAssignments[tostring(charSID)] = assignment.apartmentId
+								if tonumber(charSID) then
+									_apartmentAssignments[tonumber(charSID)] = assignment.apartmentId
+								end
+							end
+						end
+					end
+					p2:resolve(true)
+				end)
+				Citizen.Await(p2)
+			end
+			
+			-- Use database assignments
 			assignedAptIds = dbAssignedAptIds
 		else
 			
