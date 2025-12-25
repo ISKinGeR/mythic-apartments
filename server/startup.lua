@@ -47,7 +47,6 @@ function Startup()
 	GlobalState["Apartments"] = aptIds
 	
 	
-	print(string.format("^3[APARTMENTS DEBUG] Startup - Loading apartment assignments from database^7"))
 	LoadApartmentAssignments()
 	
 	if Logger then
@@ -160,17 +159,11 @@ function UpdateAvailableApartments(showDebug)
 	_availableApartments = {}
 	
 	if not _aptData then
-		if showDebug then
-			print(string.format("^1[APARTMENTS DEBUG] UpdateAvailableApartments - _aptData is nil!^7"))
-		end
 		return
 	end
 	
 	if not _assignedApartments then
 		_assignedApartments = {}
-		if showDebug then
-			print(string.format("^3[APARTMENTS DEBUG] UpdateAvailableApartments - _assignedApartments was nil, initializing^7"))
-		end
 	end
 	
 	
@@ -189,7 +182,6 @@ function UpdateAvailableApartments(showDebug)
 		}, function(success, assignments)
 			if success and assignments then
 				local dbAssignedCount = #assignments
-				print(string.format("^3[APARTMENTS DEBUG] UpdateAvailableApartments - Total apartments: %d, Assigned (DB): %d, Assigned (Local): %d^7", #_aptData, dbAssignedCount, localAssignedCount))
 				
 				
 				for _, assignment in ipairs(assignments) do
@@ -197,13 +189,6 @@ function UpdateAvailableApartments(showDebug)
 						dbAssignedAptIds[assignment.apartmentId] = true
 					end
 				end
-				
-				
-				if dbAssignedCount ~= localAssignedCount then
-					print(string.format("^1[APARTMENTS DEBUG] UpdateAvailableApartments - Mismatch detected! Using database assignments instead of local table^7"))
-				end
-			else
-				print(string.format("^3[APARTMENTS DEBUG] UpdateAvailableApartments - Total apartments: %d, Assigned (Local): %d^7", #_aptData, localAssignedCount))
 			end
 			p:resolve(true)
 		end)
@@ -219,12 +204,11 @@ function UpdateAvailableApartments(showDebug)
 			dbCount = dbCount + 1
 		end
 		if dbCount ~= localAssignedCount then
-			print(string.format("^1[APARTMENTS DEBUG] UpdateAvailableApartments - Mismatch detected! Syncing local table with database^7"))
-			-- Sync local table with database
+			
 			_assignedApartments = {}
 			_apartmentAssignments = {}
 			
-			-- Reload from database to fix the mismatch
+			
 			if Database then
 				local p2 = promise.new()
 				Database.Game:find({
@@ -253,7 +237,7 @@ function UpdateAvailableApartments(showDebug)
 				Citizen.Await(p2)
 			end
 			
-			-- Use database assignments
+			
 			assignedAptIds = dbAssignedAptIds
 		else
 			
@@ -277,9 +261,6 @@ function UpdateAvailableApartments(showDebug)
 	end
 	
 	GlobalState["AvailableApartments"] = _availableApartments
-	if showDebug then
-		print(string.format("^2[APARTMENTS DEBUG] UpdateAvailableApartments - Available apartments: %d^7", #_availableApartments))
-	end
 end
 
 
@@ -326,6 +307,12 @@ function ReleaseApartmentAssignment(apartmentId, characterSID, silent)
 		return false 
 	end
 	
+	if not Database then
+		if Logger then
+			Logger:Warn("Apartments", "Database component not available for ReleaseApartmentAssignment")
+		end
+		return false
+	end
 	
 	local assignment = _assignedApartments[apartmentId]
 	local characterID = assignment and assignment.characterID
@@ -336,7 +323,22 @@ function ReleaseApartmentAssignment(apartmentId, characterSID, silent)
 	end
 	
 	
-	Database.Game:deleteMany({
+	local invType = 13 
+	if _aptData[apartmentId] and _aptData[apartmentId].invEntity then
+		invType = _aptData[apartmentId].invEntity
+	end
+	
+	if Inventory then
+		local stashName = string.format("%s-%s", characterSID, invType)
+		if MySQL then
+			MySQL.query.await("DELETE FROM inventory WHERE name = ?", { stashName })
+			if Logger then
+				Logger:Info("Apartments", "stash cleared for apartment " .. apartmentId .. " (character " .. characterSID .. ")")
+			end
+		end
+	end
+	
+	Database.Game:delete({
 		collection = "apartment_assignments",
 		query = {
 			apartmentId = apartmentId,
@@ -395,14 +397,11 @@ end
 
 
 function GetRandomAvailableApartment()
-	print(string.format("^3[APARTMENTS DEBUG] GetRandomAvailableApartment - Available apartments: %d^7", _availableApartments and #_availableApartments or 0))
 	if _availableApartments and #_availableApartments > 0 then
 		local randomIndex = math.random(1, #_availableApartments)
 		local aptId = _availableApartments[randomIndex]
-		print(string.format("^3[APARTMENTS DEBUG] GetRandomAvailableApartment - Selected random apartment %s (index %d)^7", tostring(aptId), randomIndex))
 		return aptId
 	end
-	print(string.format("^1[APARTMENTS DEBUG] GetRandomAvailableApartment - No apartments available!^7"))
 	return nil 
 end
 

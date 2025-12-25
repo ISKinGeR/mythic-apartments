@@ -1,14 +1,13 @@
 function RegisterMiddleware()
     if not Middleware then
-        print("^1[APARTMENTS] Middleware component not found!^7")
         return
     end
     
     Middleware:Add("Characters:Creating", function(source, cData)
-        return {{
+			return {{
             Apartment = 1
-        }}
-    end)
+		}}
+	end)
 
     Middleware:Add('Characters:Spawning', function(source)
         local player = exports['mythic-base']:FetchComponent('Fetch'):Source(source)

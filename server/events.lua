@@ -46,27 +46,88 @@ AddEventHandler("Characters:Server:CharacterDeleted", function(characterID)
 	end)
 end)
 
+RegisterNetEvent("Apartment:Server:ElevatorFloorChanged", function(buildingName, floor)
+	local source = source
+	
+	if not buildingName or floor == nil then
+		return
+	end
+	
+	local player = Fetch:Source(source)
+	if not player then
+		return
+	end
+	
+	local char = player:GetData("Character")
+	if not char then
+		return
+	end
+	
+	local characterSID = char:GetData("SID")
+	local aptId = GetCharacterApartment(characterSID)
+	
+	
+	local elevatorFloors = Config.HotelElevators and Config.HotelElevators[buildingName]
+	if not elevatorFloors or not elevatorFloors[floor] then
+		return
+	end
+	
+	
+	
+	local floorConfig = elevatorFloors[floor]
+	local bucketReset = floorConfig.bucketReset
+	local isApartmentFloor = floorConfig.isApartmentFloor
+	
+	
+	local playerRoute = Routing:GetPlayerRoute(source)
+	local currentApartment = GlobalState[string.format("%s:Apartment", source)]
+	
+	if bucketReset then
+		
+		Routing:RoutePlayerToGlobalRoute(source)
+		GlobalState[string.format("%s:Apartment", source)] = nil
+		if Pwnzor and Pwnzor.Players then
+			Pwnzor.Players:TempPosIgnore(source)
+		end
+		Player(source).state.inApartment = nil
+		Player(source).state.tpLocation = nil
+		
+		
+		TriggerClientEvent("Apartment:Client:ExitElevator", source)
+	elseif isApartmentFloor and aptId and aptId > 0 then
+		
+		local expectedRouteName = string.format("Apartment:Floor:%s:%s", buildingName, floor)
+		local expectedRouteId = Routing:RequestRouteId(expectedRouteName, false)
+		
+		
+		if playerRoute.route ~= expectedRouteId then
+			Player(source).state.inApartment = {
+				type = aptId,
+				id = characterSID
+			}
+			if Pwnzor and Pwnzor.Players then
+				Pwnzor.Players:TempPosIgnore(source)
+			end
+			Routing:AddPlayerToRoute(source, expectedRouteId)
+			GlobalState[string.format("%s:Apartment", source)] = characterSID
+		end
+	end
+end)
+
 AddEventHandler("Characters:Created", function(source, charData)
-	print(string.format("^3[APARTMENTS DEBUG] Characters:Created event triggered - source: %s, SID: %s, ID: %s, Name: %s %s^7", source, tostring(charData.SID), tostring(charData.ID), charData.First or "Unknown", charData.Last or "Unknown"))
 	if not _aptData or #_aptData == 0 then
-		print(string.format("^1[APARTMENTS DEBUG] Characters:Created - _aptData is empty or nil!^7"))
 		if Logger then
 			Logger:Warn("Apartments", "Characters:Created called but _aptData is not loaded yet")
 		end
 		return
 	end
-	print(string.format("^3[APARTMENTS DEBUG] Characters:Created - Total apartments: %d, Available apartments: %d^7", #_aptData, _availableApartments and #_availableApartments or 0))
 	local aptId = GetRandomAvailableApartment()
-	print(string.format("^3[APARTMENTS DEBUG] Characters:Created - GetRandomAvailableApartment returned: %s^7", tostring(aptId)))
 	
 	if aptId then
-		print(string.format("^3[APARTMENTS DEBUG] Characters:Created - Attempting to assign apartment %s to character %s (ID: %s)^7", tostring(aptId), tostring(charData.SID), tostring(charData.ID)))
 		local assignResult = AssignApartmentToCharacter(aptId, charData.ID, charData.SID)
-		print(string.format("^3[APARTMENTS DEBUG] Characters:Created - AssignApartmentToCharacter returned: %s^7", tostring(assignResult)))
 		
 		if assignResult then
 			if Database then
-				print(string.format("^3[APARTMENTS DEBUG] Characters:Created - Updating character %s in database with Apartment = %s^7", tostring(charData.ID), tostring(aptId)))
 				Database.Game:updateOne({
 					collection = "characters",
 					query = {
@@ -78,7 +139,6 @@ AddEventHandler("Characters:Created", function(source, charData)
 						}
 					}
 				}, function(success)
-					print(string.format("^3[APARTMENTS DEBUG] Characters:Created - Database update result: %s^7", tostring(success)))
 					if success then
 						if EnsureCharacterDoorAccess then
 							EnsureCharacterDoorAccess(charData.SID, aptId)
@@ -92,20 +152,11 @@ AddEventHandler("Characters:Created", function(source, charData)
 						if Logger then
 							Logger:Info("Apartments", string.format("Assigned apartment %s to new character %s (%s)", aptId, charData.SID, charData.First .. " " .. charData.Last))
 						end
-						print(string.format("^2[APARTMENTS DEBUG] Characters:Created - Successfully assigned apartment %s to character %s^7", tostring(aptId), tostring(charData.SID)))
-					else
-						print(string.format("^1[APARTMENTS DEBUG] Characters:Created - Database update FAILED for character %s^7", tostring(charData.ID)))
 					end
 				end)
-			else
-				print(string.format("^1[APARTMENTS DEBUG] Characters:Created - Database component is nil!^7"))
 			end
-		else
-			print(string.format("^1[APARTMENTS DEBUG] Characters:Created - AssignApartmentToCharacter FAILED for apartment %s, character %s^7", tostring(aptId), tostring(charData.SID)))
 		end
 	else
-		
-		print(string.format("^1[APARTMENTS DEBUG] Characters:Created - No apartments available! Available count: %d^7", _availableApartments and #_availableApartments or 0))
 		if Logger then
 			Logger:Warn("Apartments", string.format("No apartments available for new character %s (%s) - character is homeless", charData.SID, charData.First .. " " .. charData.Last))
 		end

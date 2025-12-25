@@ -103,25 +103,20 @@ function RegisterCallbacks()
 	end)
 
 	Callbacks:RegisterServerCallback("Apartment:SpawnInside", function(source, data, cb)
-		print(string.format("^3[APARTMENTS DEBUG] Apartment:SpawnInside callback - source: %s^7", source))
 		local char = Fetch:Source(source):GetData("Character")
 		if not char then
-			print(string.format("^1[APARTMENTS DEBUG] Apartment:SpawnInside - No character found for source %s^7", source))
 			cb(false)
 			return
 		end
 		
 		
 		local characterSID = char:GetData("SID")
-		print(string.format("^3[APARTMENTS DEBUG] Apartment:SpawnInside - characterSID: %s^7", tostring(characterSID)))
 		
 		
 		local aptId = GetCharacterApartment(characterSID)
-		print(string.format("^3[APARTMENTS DEBUG] Apartment:SpawnInside - GetCharacterApartment returned: %s^7", tostring(aptId)))
 		
 		
 		if not aptId or aptId == 0 then
-			print(string.format("^3[APARTMENTS DEBUG] Apartment:SpawnInside - No apartment found, attempting to assign one^7"))
 			
 			if UpdateAvailableApartments then
 				UpdateAvailableApartments(true)
@@ -149,8 +144,6 @@ function RegisterCallbacks()
 							if SendApartmentAssignmentEmail then
 								SendApartmentAssignmentEmail(source, aptId, characterSID)
 							end
-							
-							print(string.format("^2[APARTMENTS DEBUG] Apartment:SpawnInside - Auto-assigned apartment %s to character %s^7", tostring(aptId), tostring(characterSID)))
 						end
 					end)
 				else
@@ -160,8 +153,6 @@ function RegisterCallbacks()
 		end
 		
 		if aptId and aptId > 0 then
-			print(string.format("^2[APARTMENTS DEBUG] Apartment:SpawnInside - Entering apartment %s^7", tostring(aptId)))
-			
 			if UpdateAvailableApartments then
 				UpdateAvailableApartments(true)
 			end
@@ -169,10 +160,8 @@ function RegisterCallbacks()
 			EnsureCharacterDoorAccess(characterSID, aptId)
 			
 			local enterResult = Apartment:Enter(source, aptId, -1, true)
-			print(string.format("^3[APARTMENTS DEBUG] Apartment:SpawnInside - Apartment:Enter returned: %s^7", tostring(enterResult)))
 			cb(enterResult)
 		else
-			print(string.format("^1[APARTMENTS DEBUG] Apartment:SpawnInside - No apartment found, returning false^7"))
 			cb(false)
 		end
 	end)

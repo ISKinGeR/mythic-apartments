@@ -24,6 +24,7 @@ Config.HotelElevatorsDesc = {
 Config.HotelElevators = {
     ["nexus_apartment_block_1"] = { -- hotel
         [0] = { -- GROUND FLOOR (Lobby)
+            bucketReset = true, -- Resets bucket to global route when arriving at this floor
             [1] = {
                 pos = vector4(-461.0209, -924.0651, 28.102636, 88.522109),
                 poly = {
@@ -52,6 +53,7 @@ Config.HotelElevators = {
             },
         },
         [1] = { -- 1st Floor
+            isApartmentFloor = true, -- Sets bucket to apartment route when arriving at this floor
             [1] = {
                 pos = vector4(-451.97125244141, -933.34240722656, 47.617900848389, 89.54),
                 poly = {
@@ -67,6 +69,7 @@ Config.HotelElevators = {
             },
         },
         [2] = { -- 2nd Floor
+            isApartmentFloor = true, -- Sets bucket to apartment route when arriving at this floor
             [1] = {
                 pos = vector4(-451.97125244141, -933.34240722656, 58.61344909668, 89.54),
                 poly = {
@@ -82,6 +85,7 @@ Config.HotelElevators = {
             },
         },
         [3] = { -- 3rd Floor
+            isApartmentFloor = true, -- Sets bucket to apartment route when arriving at this floor
             [1] = {
                 pos = vector4(-451.97125244141, -933.34240722656, 69.613418579102, 89.54),
                 poly = {
@@ -97,6 +101,7 @@ Config.HotelElevators = {
             },
         },
         [4] = { -- 4th Floor
+            isApartmentFloor = true, -- Sets bucket to apartment route when arriving at this floor
             [1] = {
                 pos = vector4(-451.97125244141, -933.34240722656, 80.613082885742, 89.54),
                 poly = {
@@ -112,6 +117,7 @@ Config.HotelElevators = {
             },
         },
         [5] = { -- 5th Floor
+            isApartmentFloor = true, -- Sets bucket to apartment route when arriving at this floor
             [1] = {
                 pos = vector4(-451.97125244141, -933.34240722656, 91.613677978516, 89.54),
                 poly = {
@@ -127,6 +133,7 @@ Config.HotelElevators = {
             },
         },
         [6] = { -- 6th Floor
+            isApartmentFloor = true, -- Sets bucket to apartment route when arriving at this floor
             [1] = {
                 pos = vector4(-451.97125244141, -933.34240722656, 102.61270904541, 89.54),
                 poly = {
@@ -142,6 +149,7 @@ Config.HotelElevators = {
             },
         },
         [7] = { -- 7th floor
+            isApartmentFloor = true, -- Sets bucket to apartment route when arriving at this floor
             [1] = {
                 pos = vector4(-451.97125244141, -933.34240722656, 108.11304473877, 89.54),
                 poly = {

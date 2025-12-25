@@ -443,6 +443,25 @@ _APTS = {
 				id = rTarget
 			}
 
+			
+			
+			local apt = _aptData[targetType or 1]
+			if not apt then
+				return false
+			end
+			
+			local buildingName = apt.buildingName or apt.buildingLabel
+			local floor = apt.floor
+			
+			if not buildingName or not floor then
+				return false
+			end
+			
+			local routeId = Routing:RequestRouteId(string.format("Apartment:Floor:%s:%s", buildingName, floor), false)
+			if Pwnzor and Pwnzor.Players then
+				Pwnzor.Players:TempPosIgnore(source)
+			end
+			Routing:AddPlayerToRoute(source, routeId)
 		
 			GlobalState[string.format("%s:Apartment", source)] = rTarget
 			TriggerClientEvent("Apartment:Client:InnerStuff", source, targetType or 1, rTarget, wakeUp)
@@ -463,7 +482,11 @@ _APTS = {
 	end,
 	Exit = function(self, source)
 		
+		Routing:RoutePlayerToGlobalRoute(source)
 		GlobalState[string.format("%s:Apartment", source)] = nil
+		if Pwnzor and Pwnzor.Players then
+			Pwnzor.Players:TempPosIgnore(source)
+		end
 		Player(source).state.inApartment = nil
 		Player(source).state.tpLocation = nil
 

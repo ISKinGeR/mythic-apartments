@@ -39,6 +39,9 @@ function CreateElevatorPolyzones()
 	for buildingName, elevatorFloors in pairs(Config.HotelElevators) do
 		for floor, floorElevators in pairs(elevatorFloors) do
 			for elevatorIndex, elevatorData in pairs(floorElevators) do
+				if type(elevatorData) ~= "table" then
+					goto continue
+				end
 				if elevatorData.poly then
 					local zoneId = string.format("elevator-%s-%s-%s", buildingName, floor, elevatorIndex)
 					Polyzone.Create:Box(zoneId, elevatorData.poly.center, elevatorData.poly.length, elevatorData.poly.width, elevatorData.poly.options, {
@@ -47,6 +50,7 @@ function CreateElevatorPolyzones()
 						elevatorIndex = elevatorIndex
 					})
 				end
+				::continue::
 			end
 		end
 	end
@@ -604,7 +608,6 @@ AddEventHandler("Apartment:Client:UseElevator", function(data)
 	_currentFloor = data.floor
 	Wait(200)
 	
-	
 	DoScreenFadeIn(1200)
 
 	
@@ -935,3 +938,12 @@ _APTS = {
 		end,
 	},
 }
+
+
+RegisterNetEvent("Apartment:Client:ExitElevator", function()
+	
+	TriggerEvent("Interiors:Exit")
+	if Sync then
+		Sync:Start()
+	end
+end)
