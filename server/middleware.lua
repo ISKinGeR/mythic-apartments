@@ -85,25 +85,45 @@ function RegisterMiddleware()
 			print(string.format("^3[APARTMENTS DEBUG] Characters:GetSpawnPoints - Character has apartment %s, fetching apartment data^7", tostring(aptId)))
 			local apt = _aptData[aptId]
 			if apt then
-				local roomLabel = apt.roomLabel or aptId
-				local buildingLabel = apt.buildingLabel or apt.buildingName or "Apartment"
-				local label = string.format("%s - Room %s", buildingLabel, roomLabel)
-				
-				print(string.format("^3[APARTMENTS DEBUG] Characters:GetSpawnPoints - Apartment found: %s, wakeup coords: %s, %s, %s^7", label, tostring(apt.interior.wakeup.x), tostring(apt.interior.wakeup.y), tostring(apt.interior.wakeup.z)))
-				
-				table.insert(spawns, {
-					id = string.format("APT:%s:%s", aptId, cData.SID),
-					label = label,
-					location = {
-						x = apt.interior.wakeup.x,
-						y = apt.interior.wakeup.y,
-						z = apt.interior.wakeup.z,
-						h = apt.interior.wakeup.h or 0.0
-					},
-					icon = "building",
-					event = "Apartment:SpawnInside",
-				})
-				print(string.format("^2[APARTMENTS DEBUG] Characters:GetSpawnPoints - Added spawn point for apartment %s^7", tostring(aptId)))
+				-- Check if interior and wakeup data exists
+				if apt.interior and apt.interior.wakeup then
+					local roomLabel = apt.roomLabel or aptId
+					local buildingLabel = apt.buildingLabel or apt.buildingName or "Apartment"
+					local label = string.format("%s - Room %s", buildingLabel, roomLabel)
+					
+					-- Safely access wakeup coordinates with fallbacks
+					local wakeupX = apt.interior.wakeup.x
+					local wakeupY = apt.interior.wakeup.y
+					local wakeupZ = apt.interior.wakeup.z
+					local wakeupH = apt.interior.wakeup.h or 0.0
+					
+					-- Validate coordinates exist
+					if wakeupX ~= nil and wakeupY ~= nil and wakeupZ ~= nil then
+						print(string.format("^3[APARTMENTS DEBUG] Characters:GetSpawnPoints - Apartment found: %s, wakeup coords: %s, %s, %s^7", label, tostring(wakeupX), tostring(wakeupY), tostring(wakeupZ)))
+						
+						table.insert(spawns, {
+							id = string.format("APT:%s:%s", aptId, cData.SID),
+							label = label,
+							location = {
+								x = wakeupX,
+								y = wakeupY,
+								z = wakeupZ,
+								h = wakeupH
+							},
+							icon = "building",
+							event = "Apartment:SpawnInside",
+						})
+						print(string.format("^2[APARTMENTS DEBUG] Characters:GetSpawnPoints - Added spawn point for apartment %s^7", tostring(aptId)))
+					else
+						print(string.format("^1[APARTMENTS DEBUG] Characters:GetSpawnPoints - Apartment %s wakeup coordinates are invalid (x: %s, y: %s, z: %s)!^7", tostring(aptId), tostring(wakeupX), tostring(wakeupY), tostring(wakeupZ)))
+					end
+				else
+					if not apt.interior then
+						print(string.format("^1[APARTMENTS DEBUG] Characters:GetSpawnPoints - Apartment %s has no interior data!^7", tostring(aptId)))
+					elseif not apt.interior.wakeup then
+						print(string.format("^1[APARTMENTS DEBUG] Characters:GetSpawnPoints - Apartment %s has no wakeup data!^7", tostring(aptId)))
+					end
+				end
 			else
 				print(string.format("^1[APARTMENTS DEBUG] Characters:GetSpawnPoints - Apartment %s not found in _aptData!^7", tostring(aptId)))
 			end
