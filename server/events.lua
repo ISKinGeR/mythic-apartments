@@ -99,7 +99,10 @@ RegisterNetEvent("Apartment:Server:ElevatorFloorChanged", function(buildingName,
 		local expectedRouteName = string.format("Apartment:Floor:%s:%s", buildingName, floor)
 		local expectedRouteId = Routing:RequestRouteId(expectedRouteName, false)
 		
+		local currentApartmentState = Player(source).state.inApartment
+		local alreadyInApartment = currentApartmentState and currentApartmentState.type == aptId and currentApartmentState.id == characterSID
 		
+		-- Only update route if player is not already on the correct route
 		if playerRoute.route ~= expectedRouteId then
 			Player(source).state.inApartment = {
 				type = aptId,
@@ -110,6 +113,11 @@ RegisterNetEvent("Apartment:Server:ElevatorFloorChanged", function(buildingName,
 			end
 			Routing:AddPlayerToRoute(source, expectedRouteId)
 			GlobalState[string.format("%s:Apartment", source)] = characterSID
+		end
+		
+		-- Only trigger InnerStuff if player wasn't already in this apartment (prevents loop)
+		if not alreadyInApartment then
+			TriggerClientEvent("Apartment:Client:InnerStuff", source, aptId, characterSID, false)
 		end
 	end
 end)

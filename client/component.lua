@@ -186,28 +186,6 @@ AddEventHandler("Core:Shared:Ready", function()
 				)
 			end
 		end
-
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
 	end)
 end)
 
@@ -217,71 +195,29 @@ AddEventHandler("Proxy:Shared:RegisterReady", function()
 end)
 
 
+local _apartmentTargetsSetup = {}
 
+local _apartmentPolyzonesSetup = {}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-RegisterNetEvent("Apartment:Client:InnerStuff", function(aptId, unit, wakeUp)
-	while GlobalState[string.format("%s:Apartment", LocalPlayer.state.ID)] == nil do
-		Wait(10)
-	end
-	
+local function SetupApartmentTargets(aptId, unit)
 	local p = GlobalState[string.format("Apartment:%s", aptId)]
 	if not p or not p.interior then
 		return
 	end
 	
-	if p.floor and p.buildingName then
-		_currentFloor = p.floor
-		TriggerServerEvent("Apartment:Server:ElevatorFloorChanged", p.buildingName, p.floor)
+	
+	local targetKey = string.format("%s_%s", aptId, unit)
+	local polyzoneKey = string.format("%s_%s", aptId, unit)
+	
+	
+	
+	local needPolyzones = not _apartmentPolyzonesSetup[polyzoneKey]
+	local needTargets = not _apartmentTargetsSetup[targetKey]
+	
+	if not needTargets and not needPolyzones then
+		return 
 	end
 	
-	TriggerEvent("Interiors:Enter", vector3(p.interior.spawn.x, p.interior.spawn.y, p.interior.spawn.z))
-
-	if wakeUp then
-		SetTimeout(250, function()
-			Animations.Emotes:WakeUp(p.interior.wakeup)
-		end)
-	end
-
 	
 	Targeting.Zones:AddBox(
 		string.format("apt-%s-raid", aptId),
@@ -300,7 +236,6 @@ RegisterNetEvent("Apartment:Client:InnerStuff", function(aptId, unit, wakeUp)
 					unit = unit
 				},
 				isEnabled = function(data)
-					
 					return LocalPlayer.state.onDuty == "police"
 				end,
 			},
@@ -335,7 +270,7 @@ RegisterNetEvent("Apartment:Client:InnerStuff", function(aptId, unit, wakeUp)
 	end
 
 	
-	if p.interior.locations.wardrobe then
+	if needPolyzones and p.interior.locations.wardrobe then
 		local wardrobeZoneId = string.format("apt-%s-wardrobe", aptId)
 		Polyzone.Create:Box(wardrobeZoneId, p.interior.locations.wardrobe.coords, p.interior.locations.wardrobe.length, p.interior.locations.wardrobe.width, p.interior.locations.wardrobe.options, {
 			aptId = aptId,
@@ -345,7 +280,7 @@ RegisterNetEvent("Apartment:Client:InnerStuff", function(aptId, unit, wakeUp)
 	end
 	
 	
-	if p.interior.locations.shower then
+	if needPolyzones and p.interior.locations.shower then
 		local showerZoneId = string.format("apt-%s-shower", aptId)
 		Polyzone.Create:Box(showerZoneId, p.interior.locations.shower.coords, p.interior.locations.shower.length, p.interior.locations.shower.width, p.interior.locations.shower.options, {
 			aptId = aptId,
@@ -377,17 +312,14 @@ RegisterNetEvent("Apartment:Client:InnerStuff", function(aptId, unit, wakeUp)
 						
 						local mySID = char:GetData("SID")
 						
-						
 						if unit == mySID then
 							return true
 						end
-						
 						
 						if LocalPlayer.state.onDuty == "police" then
 							local raidState = GlobalState[string.format("Apartment:Raid:%s", aptId)]
 							return raidState == true
 						end
-						
 						
 						return false
 					end,
@@ -398,9 +330,113 @@ RegisterNetEvent("Apartment:Client:InnerStuff", function(aptId, unit, wakeUp)
 		)
 	end
 
+	
+	if needTargets then
+		_apartmentTargetsSetup[targetKey] = true
+	end
+	if needPolyzones then
+		_apartmentPolyzonesSetup[polyzoneKey] = true
+	end
+
+	Targeting.Zones:Refresh()
+end
+
+RegisterNetEvent("Apartment:Client:InnerStuff", function(aptId, unit, wakeUp)
+	while GlobalState[string.format("%s:Apartment", LocalPlayer.state.ID)] == nil do
+		Wait(10)
+	end
+	
+	local p = GlobalState[string.format("Apartment:%s", aptId)]
+	if not p or not p.interior then
+		return
+	end
+	if p.floor and p.buildingName and _currentFloor ~= p.floor then
+		_currentFloor = p.floor
+		TriggerServerEvent("Apartment:Server:ElevatorFloorChanged", p.buildingName, p.floor)
+	end
+	
+	TriggerEvent("Interiors:Enter", vector3(p.interior.spawn.x, p.interior.spawn.y, p.interior.spawn.z))
+
+	if wakeUp then
+		SetTimeout(250, function()
+			Animations.Emotes:WakeUp(p.interior.wakeup)
+		end)
+	end
+
+	
+	SetupApartmentTargets(aptId, unit)
+
 	Targeting.Zones:Refresh()
 	Wait(1000)
 	Sync:Stop(1)
+end)
+
+AddEventHandler("Characters:Client:Spawn", function()
+	if not LocalPlayer.state.Character then
+		return
+	end
+	local char = LocalPlayer.state.Character
+	local mySID = char:GetData("SID")
+	local aptId = char:GetData("Apartment") or 0
+	
+	if aptId > 0 then
+		local inApartmentState = LocalPlayer.state.inApartment
+		if inApartmentState and inApartmentState.type == aptId and inApartmentState.id == mySID then
+			SetupApartmentTargets(aptId, mySID)
+		end
+	end
+end)
+
+
+AddEventHandler("Characters:Client:Logout", function()
+	
+	if LocalPlayer.state.inApartment then
+		local aptId = LocalPlayer.state.inApartment.type
+		local unit = LocalPlayer.state.inApartment.id
+		
+		if aptId then
+			local p = GlobalState[string.format("Apartment:%s", aptId)]
+			if p and p.interior then
+				
+				for k, v in pairs(p.interior.locations) do
+					Targeting.Zones:RemoveZone(string.format("apt-%s-%s", k, aptId))
+				end
+				Targeting.Zones:RemoveZone(string.format("apt-%s-raid", aptId))
+				
+				
+				if p.interior.locations.wardrobe then
+					Polyzone:RemoveZone(string.format("apt-%s-wardrobe", aptId))
+				end
+				if p.interior.locations.shower then
+					Polyzone:RemoveZone(string.format("apt-%s-shower", aptId))
+				end
+				
+				
+				if unit then
+					local exitKey = string.format("%s_%s", aptId, unit)
+					_apartmentTargetsSetup[exitKey] = nil
+					_apartmentPolyzonesSetup[exitKey] = nil
+				end
+				
+				Targeting.Zones:Refresh()
+			end
+		end
+		
+		
+		for buildingName, buildingData in pairs(_floorRaidTargets) do
+			for floor, aptIds in pairs(buildingData) do
+				for _, floorAptId in ipairs(aptIds) do
+					Targeting.Zones:RemoveZone(string.format("apt-%s-raid-floor", floorAptId))
+				end
+			end
+		end
+		_floorRaidTargets = {}
+	end
+	
+	
+	_currentFloor = nil
+	_currentWardrobe = nil
+	_currentShower = nil
 end)
 
 AddEventHandler("Apartment:Client:Raid", function(data)
@@ -431,14 +467,14 @@ function CreateFloorRaidTargets(buildingName, floor)
 		return
 	end
 	
-	-- Remove old raid targets for this floor
+	
 	if _floorRaidTargets[buildingName] and _floorRaidTargets[buildingName][floor] then
 		for _, aptId in ipairs(_floorRaidTargets[buildingName][floor]) do
-			Targeting.Zones:RemoveZone(string.format("apt-%s-raid", aptId))
+			Targeting.Zones:RemoveZone(string.format("apt-%s-raid-floor", aptId))
 		end
 	end
 	
-	-- Get all apartments on this floor
+	
 	Callbacks:ServerCallback("Apartment:GetFloorApartments", {
 		buildingName = buildingName,
 		floor = floor
@@ -447,11 +483,11 @@ function CreateFloorRaidTargets(buildingName, floor)
 			return
 		end
 		
-		-- Store which apartments we're creating targets for
+		
 		_floorRaidTargets[buildingName] = _floorRaidTargets[buildingName] or {}
 		_floorRaidTargets[buildingName][floor] = {}
 		
-		-- Create raid targets for each apartment on this floor
+		
 		for _, aptData in ipairs(floorApartments) do
 			local aptId = aptData.aptId
 			local apt = GlobalState[string.format("Apartment:%s", aptId)]
@@ -466,8 +502,9 @@ function CreateFloorRaidTargets(buildingName, floor)
 				end
 				
 				if doorEntry then
+					
 					Targeting.Zones:AddBox(
-						string.format("apt-%s-raid", aptId),
+						string.format("apt-%s-raid-floor", aptId),
 						"shield-halved",
 						doorEntry,
 						1.5,
@@ -513,7 +550,7 @@ AddEventHandler("Polyzone:Enter", function(id, testedPoint, insideZones, data)
 		}
 		Action:Show("{keybind}primary_action{/keybind} Use Elevator")
 		
-		-- Create raid targets for all apartments on this floor
+		
 		CreateFloorRaidTargets(data.buildingName, data.floor)
 	
 	elseif data and data.type == "wardrobe" then
@@ -695,8 +732,26 @@ AddEventHandler("Apartment:Client:UseElevator", function(data)
 	
 	TriggerServerEvent("Apartment:Server:ElevatorFloorChanged", data.buildingName, data.floor)
 	
-	-- Create raid targets for all apartments on this floor
+	
 	CreateFloorRaidTargets(data.buildingName, data.floor)
+
+	if LocalPlayer.state.Character then
+		local char = LocalPlayer.state.Character
+		local mySID = char:GetData("SID")
+		local aptId = char:GetData("Apartment") or 0
+		
+		if aptId > 0 then
+			local apt = GlobalState[string.format("Apartment:%s", aptId)]
+			if apt and apt.buildingName == data.buildingName and apt.floor == data.floor then
+				
+				local inApartmentState = LocalPlayer.state.inApartment
+				if inApartmentState and inApartmentState.type == aptId and inApartmentState.id == mySID then
+					
+					TriggerEvent("Apartment:Client:InnerStuff", aptId, mySID, false)
+				end
+			end
+		end
+	end
 end)
 
 AddEventHandler("Apartment:Client:Enter", function(data)
@@ -977,6 +1032,15 @@ _APTS = {
 			end
 			if p.interior.locations.shower then
 				Polyzone:RemoveZone(string.format("apt-%s-shower", LocalPlayer.state.inApartment.type))
+			end
+			
+			
+			local exitAptId = LocalPlayer.state.inApartment.type
+			local exitUnit = LocalPlayer.state.inApartment.id
+			if exitAptId and exitUnit then
+				local exitKey = string.format("%s_%s", exitAptId, exitUnit)
+				_apartmentTargetsSetup[exitKey] = nil
+				_apartmentPolyzonesSetup[exitKey] = nil
 			end
 			
 			
