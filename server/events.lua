@@ -114,6 +114,16 @@ RegisterNetEvent("Apartment:Server:ElevatorFloorChanged", function(buildingName,
 			Routing:AddPlayerToRoute(source, expectedRouteId)
 			GlobalState[string.format("%s:Apartment", source)] = characterSID
 		end
+
+		local floorFurniture = GetFloorFurniture(buildingName, floor)
+
+		TriggerClientEvent(
+			"Apartment:Client:spawnFk",
+			source,
+			buildingName,
+			floor,
+			floorFurniture
+		)
 		
 		-- Only trigger InnerStuff if player wasn't already in this apartment (prevents loop)
 		if not alreadyInApartment then
@@ -121,6 +131,42 @@ RegisterNetEvent("Apartment:Server:ElevatorFloorChanged", function(buildingName,
 		end
 	end
 end)
+
+function GetFloorFurniture(buildingName, floor)
+    local result = {}
+
+    if not GlobalState["Apartments"] then
+        return result
+    end
+
+    for _, aptId in ipairs(GlobalState["Apartments"]) do
+        local apt = GlobalState[string.format("Apartment:%s", aptId)]
+        if not apt then goto continue end
+
+        -- فلترة المبنى
+        if apt.buildingName ~= buildingName then
+            goto continue
+        end
+
+        -- فلترة الفلور
+        if apt.floor ~= floor then
+            goto continue
+        end
+
+        local furniture = apt.furniture or {}
+
+        table.insert(result, {
+            aptId = aptId,
+            roomLabel = apt.roomLabel,
+            floor = apt.floor,
+            furniture = furniture,
+        })
+
+        ::continue::
+    end
+
+    return result
+end
 
 -- Clean up apartment state on logout
 RegisterNetEvent("Apartment:Server:LogoutCleanup", function()
