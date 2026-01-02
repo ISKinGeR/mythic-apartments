@@ -97,28 +97,42 @@ end
 
 function EnsureCharacterDoorAccess(characterSID, apartmentId)
 	if not characterSID or not apartmentId then
+		-- print(("[APT][DoorAccess] INVALID args | characterSID=%s apartmentId=%s"):format(tostring(characterSID), tostring(apartmentId)))
 		return false
 	end
-	
+
 	local apt = _aptData[apartmentId]
-	if not apt or not apt.doorId or type(apt.doorId) ~= "number" then
+	if not apt then
+		-- print(("[APT][DoorAccess] apt NOT FOUND | apartmentId=%s"):format(tostring(apartmentId)))
 		return false
 	end
-	
-	
+
+	if not apt.doorId or type(apt.doorId) ~= "number" then
+		-- print(("[APT][DoorAccess] INVALID doorId | apartmentId=%s doorId=%s type=%s"):format(
+		-- 	tostring(apartmentId), tostring(apt.doorId), type(apt.doorId)
+		-- ))
+		return false
+	end
+
+	-- Optional: enable this only while debugging (comment out later)
+	-- print(("[APT][DoorAccess] CHECK | apartmentId=%s doorId=%d characterSID=%s"):format(tostring(apartmentId), apt.doorId, tostring(characterSID)))
+
 	local doorData = exports.ox_doorlock:getDoor(apt.doorId)
 	if not doorData then
+		-- print(("[APT][DoorAccess] ox_doorlock:getDoor FAILED | doorId=%d apartmentId=%s"):format(apt.doorId, tostring(apartmentId)))
 		return false
 	end
-	
+
 	local characters = doorData.characters or {}
 	local characterSIDNum = tonumber(characterSID)
-	
-	
-	
+
+	-- Quick state print (only once, not spammy)
+	-- print(("[APT][DoorAccess] DOOR OK | doorId=%d chars=%d (type=%s)"):format(
+	-- 	apt.doorId, #characters, type(doorData.characters)
+	-- ))
+
 	local found = false
 	for _, charId in ipairs(characters) do
-		
 		if characterSIDNum and tonumber(charId) == characterSIDNum then
 			found = true
 			break
@@ -127,20 +141,27 @@ function EnsureCharacterDoorAccess(characterSID, apartmentId)
 			break
 		end
 	end
-	
-	
-	if not found then
-		
-		
-		local charIdToStore = characterSIDNum or characterSID
-		table.insert(characters, charIdToStore)
-		exports.ox_doorlock:editDoor(apt.doorId, { characters = characters })
-		
-		if Logger then
-			Logger:Info("Apartments", string.format("Added door access for character %s to apartment %s (door %s)", characterSID, apartmentId, apt.doorId))
-		end
+
+	if found then
+		-- Only one line when already has access (optional; comment it out if you want even less)
+		-- print(("[APT][DoorAccess] ALREADY HAS ACCESS | doorId=%d characterSID=%s"):format(apt.doorId, tostring(characterSID)))
+		return true
 	end
-	
+
+	local charIdToStore = characterSIDNum or characterSID
+	table.insert(characters, charIdToStore)
+
+	exports.ox_doorlock:editDoor(apt.doorId, { characters = characters })
+
+	-- Confirm write attempt (minimal)
+	-- print(("[APT][DoorAccess] ADDED ACCESS | doorId=%d characterSID=%s storedAs=%s totalChars=%d"):format(
+	-- 	apt.doorId, tostring(characterSID), tostring(charIdToStore), #characters
+	-- ))
+
+	if Logger then
+		Logger:Info("Apartments", string.format("Added door access for character %s to apartment %s (door %s)", characterSID, apartmentId, apt.doorId))
+	end
+
 	return true
 end
 
