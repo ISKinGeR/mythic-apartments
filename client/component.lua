@@ -7,28 +7,108 @@ local _currentWardrobe = nil
 local _currentShower = nil 
 local _isShowering = false 
 local _showerParticle = nil 
-
+local _floorFurniture = {} -- _floorFurniture[building][floor] = { objects = {entity,...} }
+local _activeFloor = nil   -- { buildingName = "", floor = number }
+local SpawnedFloorFurniture = {}
+local CurrentFloorKey = nil
 AddEventHandler("Apartment:Shared:DependencyUpdate", RetrieveComponents)
 function RetrieveComponents()
-	Callbacks = exports["mythic-base"]:FetchComponent("Callbacks")
-	Utils = exports["mythic-base"]:FetchComponent("Utils")
-	Blips = exports["mythic-base"]:FetchComponent("Blips")
-	Notification = exports["mythic-base"]:FetchComponent("Notification")
-	Action = exports["mythic-base"]:FetchComponent("Action")
-	Polyzone = exports["mythic-base"]:FetchComponent("Polyzone")
-	Ped = exports["mythic-base"]:FetchComponent("Ped")
-	Sounds = exports["mythic-base"]:FetchComponent("Sounds")
-	Targeting = exports["mythic-base"]:FetchComponent("Targeting")
-	Interaction = exports["mythic-base"]:FetchComponent("Interaction")
-	Action = exports["mythic-base"]:FetchComponent("Action")
-	ListMenu = exports["mythic-base"]:FetchComponent("ListMenu")
-	Input = exports["mythic-base"]:FetchComponent("Input")
-	Apartment = exports["mythic-base"]:FetchComponent("Apartment")
-	Characters = exports["mythic-base"]:FetchComponent("Characters")
-	Wardrobe = exports["mythic-base"]:FetchComponent("Wardrobe")
-	Sync = exports["mythic-base"]:FetchComponent("Sync")
-	Animations = exports["mythic-base"]:FetchComponent("Animations")
-	Progress = exports["mythic-base"]:FetchComponent("Progress")
+	Callbacks = exports["skdev-base"]:FetchComponent("Callbacks")
+	Utils = exports["skdev-base"]:FetchComponent("Utils")
+	Blips = exports["skdev-base"]:FetchComponent("Blips")
+	Notification = exports["skdev-base"]:FetchComponent("Notification")
+	Action = exports["skdev-base"]:FetchComponent("Action")
+	Polyzone = exports["skdev-base"]:FetchComponent("Polyzone")
+	Ped = exports["skdev-base"]:FetchComponent("Ped")
+	Sounds = exports["skdev-base"]:FetchComponent("Sounds")
+	Targeting = exports["skdev-base"]:FetchComponent("Targeting")
+	Interaction = exports["skdev-base"]:FetchComponent("Interaction")
+	Action = exports["skdev-base"]:FetchComponent("Action")
+	ListMenu = exports["skdev-base"]:FetchComponent("ListMenu")
+	Input = exports["skdev-base"]:FetchComponent("Input")
+	Apartment = exports["skdev-base"]:FetchComponent("Apartment")
+	Characters = exports["skdev-base"]:FetchComponent("Characters")
+	Wardrobe = exports["skdev-base"]:FetchComponent("Wardrobe")
+	Sync = exports["skdev-base"]:FetchComponent("Sync")
+	Animations = exports["skdev-base"]:FetchComponent("Animations")
+	Progress = exports["skdev-base"]:FetchComponent("Progress")
+end
+
+local function SpawnFurnitureProp(data)
+    local model = joaat(data.model)
+    RequestModel(model)
+    while not HasModelLoaded(model) do
+        Wait(0)
+    end
+
+    local obj = CreateObjectNoOffset(
+        model,
+        data.x,
+        data.y,
+        data.z,
+        false,
+        false,
+        false
+    )
+
+    SetEntityHeading(obj, data.h or 0.0)
+    FreezeEntityPosition(obj, true)
+    SetEntityInvincible(obj, true)
+    SetEntityCollision(obj, true, true)
+    SetEntityAsMissionEntity(obj, true, true)
+
+    return obj
+end
+
+-- =========================================
+-- RECEIVE FLOOR FURNITURE FROM SERVER
+-- =========================================
+RegisterNetEvent("Apartment:Client:spawnFk", function(buildingName, floor, floordata)
+    CreateFloorFurniture(buildingName, floor, floordata)
+end)
+
+-- =========================================
+-- CREATE ALL FURNITURE FOR A FLOOR
+-- =========================================
+function CreateFloorFurniture(buildingName, floor, floordata)
+    ClearFloorFurniture() -- safety cleanup
+
+    if not floordata or type(floordata) ~= "table" then return end
+
+    local floorKey = string.format("%s:%s", buildingName, floor)
+    CurrentFloorKey = floorKey
+    SpawnedFloorFurniture[floorKey] = {}
+
+    for _, room in ipairs(floordata) do
+        local furniture = room.furniture
+        if furniture and type(furniture) == "table" then
+            for _, furn in ipairs(furniture) do
+                local obj = SpawnFurnitureProp(furn)
+                if obj then
+                    table.insert(SpawnedFloorFurniture[floorKey], obj)
+                end
+            end
+        end
+    end
+end
+
+-- =========================================
+-- CLEAR ALL FURNITURE FOR CURRENT FLOOR
+-- =========================================
+function ClearFloorFurniture()
+    if not CurrentFloorKey then return end
+
+    local objs = SpawnedFloorFurniture[CurrentFloorKey]
+    if objs then
+        for _, ent in ipairs(objs) do
+            if DoesEntityExist(ent) then
+                DeleteEntity(ent)
+            end
+        end
+    end
+
+    SpawnedFloorFurniture[CurrentFloorKey] = nil
+    CurrentFloorKey = nil
 end
 
 function CreateElevatorPolyzones()
@@ -57,7 +137,7 @@ function CreateElevatorPolyzones()
 end
 
 AddEventHandler("Core:Shared:Ready", function()
-		exports["mythic-base"]:RequestDependencies("Apartment", {
+		exports["skdev-base"]:RequestDependencies("Apartment", {
 		"Callbacks",
 		"Utils",
 		"Blips",
@@ -117,7 +197,7 @@ AddEventHandler("Core:Shared:Ready", function()
 
 		
 		if Config.ReceptionPed then
-			local PedInteraction = exports["mythic-base"]:FetchComponent("PedInteraction")
+			local PedInteraction = exports["skdev-base"]:FetchComponent("PedInteraction")
 			if PedInteraction then
 				
 				RegisterNetEvent("Apartment:Reception:RequestApartment", function()
@@ -191,7 +271,7 @@ end)
 
 
 AddEventHandler("Proxy:Shared:RegisterReady", function()
-	exports["mythic-base"]:RegisterComponent("Apartment", _APTS)
+	exports["skdev-base"]:RegisterComponent("Apartment", _APTS)
 end)
 
 
@@ -374,7 +454,7 @@ RegisterNetEvent("Apartment:Client:InnerStuff", function(aptId, unit, wakeUp)
 	Sync:Stop(1)
 end)
 
-AddEventHandler("Characters:Client:Spawn", function()
+RegisterNetEvent("Characters:Client:Spawn", function()
 	if not LocalPlayer.state.Character then
 		return
 	end
@@ -391,7 +471,7 @@ AddEventHandler("Characters:Client:Spawn", function()
 end)
 
 
-AddEventHandler("Characters:Client:Logout", function()
+RegisterNetEvent("Characters:Client:Logout", function()
 	_currentFloor = nil
 	_currentElevator = nil
 	
@@ -1110,3 +1190,79 @@ RegisterNetEvent("Apartment:Client:ExitElevator", function()
 		Sync:Start()
 	end
 end)
+
+
+-- RegisterCommand("raycastDoorRooms", function()
+--     lib.showTextUI("Aim at a door\nPress [E] to save room\nPress [Esc] to cancel")
+
+--     local roomNumber = 101
+--     local maxRoom = 119
+
+--     CreateThread(function()
+--         while true do
+--             Wait(0)
+--             DisablePlayerFiring(PlayerId(), true)
+
+--             if roomNumber > maxRoom then
+--                 lib.hideTextUI()
+--                 print("✅ Finished saving rooms 101 → 119")
+--                 break
+--             end
+
+--             -- Raycast (objects only)
+--             local hit, entity = lib.raycast.cam(16)
+
+--             if hit and entity ~= 0 and DoesEntityExist(entity) then
+--                 -- Must be an object
+--                 if GetEntityType(entity) == 3 then
+--                     local model = GetEntityModel(entity)
+
+--                     -- Ensure it's a door
+--                     if DoorSystemGetDoorState(model) ~= nil then
+--                         local coords = GetEntityCoords(entity)
+--                         local heading = GetEntityHeading(entity)
+
+--                         -- Marker on door
+--                         DrawMarker(
+--                             1,
+--                             coords.x, coords.y, coords.z + 1.0,
+--                             0.0, 0.0, 0.0,
+--                             0.0, 0.0, 0.0,
+--                             0.3, 0.3, 0.3,
+--                             0, 200, 255, 150,
+--                             false, true, 2, nil, nil, false
+--                         )
+
+--                         -- Press E
+--                         if IsControlJustPressed(0, 38) then
+--                             local roomName = string.format("room %d", roomNumber)
+
+--                             print("========== DOOR ==========")
+--                             print(string.format('name = "%s",', roomName))
+--                             print(string.format("model = %s,", model))
+--                             print(string.format(
+--                                 "coords = vector3(%.6f, %.6f, %.6f),",
+--                                 coords.x, coords.y, coords.z
+--                             ))
+--                             print(string.format(
+--                                 "heading = %.6f,",
+--                                 heading
+--                             ))
+--                             print("==========================")
+
+--                             roomNumber = roomNumber + 1
+--                             Wait(500)
+--                         end
+--                     end
+--                 end
+--             end
+
+--             -- ESC
+--             if IsControlJustPressed(0, 322) then
+--                 lib.hideTextUI()
+--                 print("❌ Canceled at room", roomNumber)
+--                 break
+--             end
+--         end
+--     end)
+-- end)
