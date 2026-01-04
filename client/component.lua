@@ -1,118 +1,335 @@
 local _pzs = {}
 local _inPoly = false
 local _menu = false
-local _currentElevator = nil 
-local _currentFloor = nil 
-local _currentWardrobe = nil 
-local _currentShower = nil 
-local _isShowering = false 
-local _showerParticle = nil 
-local _floorFurniture = {} -- _floorFurniture[building][floor] = { objects = {entity,...} }
-local _activeFloor = nil   -- { buildingName = "", floor = number }
-local SpawnedFloorFurniture = {}
+
+local _currentElevator = nil
+local _currentFloor = nil
+
+local _currentWardrobe = nil
+local _currentShower = nil
+local _isShowering = false
+local _showerParticle = nil
+local _showerParticles = {}
+
+-- Floor furniture state
+local SpawnedFloorFurniture = {} -- SpawnedFloorFurniture[floorKey] = { entity, ... }
 local CurrentFloorKey = nil
-AddEventHandler("Apartment:Shared:DependencyUpdate", RetrieveComponents)
+local _FurnitureSpawned = false
+
+-- RoomsReady indexing
+local _RoomsReadyBuilt = false
+local _RoomsIndexByBuildingFloor = {} -- [buildingName][floor] = { room, ... }
+local _RoomMetaByAptId = {}           -- [aptId] = { buildingName=, floor=, roomLabel= }
+
+-- Elevator current position for menu disable
+local _currentElevatorBuilding = nil
+local _currentElevatorFloor = nil
+
+-- Components
+local Callbacks, Utils, Blips, Notification, Action, Polyzone, Ped, Sounds, Targeting, Interaction, ListMenu, Input
+local Apartment, Characters, Wardrobe, Sync, Animations, Progress
+
+AddEventHandler("Apartment:Shared:DependencyUpdate", function()
+	RetrieveComponents()
+end)
+
 function RetrieveComponents()
-	Callbacks = exports["skdev-base"]:FetchComponent("Callbacks")
-	Utils = exports["skdev-base"]:FetchComponent("Utils")
-	Blips = exports["skdev-base"]:FetchComponent("Blips")
-	Notification = exports["skdev-base"]:FetchComponent("Notification")
-	Action = exports["skdev-base"]:FetchComponent("Action")
-	Polyzone = exports["skdev-base"]:FetchComponent("Polyzone")
-	Ped = exports["skdev-base"]:FetchComponent("Ped")
-	Sounds = exports["skdev-base"]:FetchComponent("Sounds")
-	Targeting = exports["skdev-base"]:FetchComponent("Targeting")
-	Interaction = exports["skdev-base"]:FetchComponent("Interaction")
-	Action = exports["skdev-base"]:FetchComponent("Action")
-	ListMenu = exports["skdev-base"]:FetchComponent("ListMenu")
-	Input = exports["skdev-base"]:FetchComponent("Input")
-	Apartment = exports["skdev-base"]:FetchComponent("Apartment")
-	Characters = exports["skdev-base"]:FetchComponent("Characters")
-	Wardrobe = exports["skdev-base"]:FetchComponent("Wardrobe")
-	Sync = exports["skdev-base"]:FetchComponent("Sync")
-	Animations = exports["skdev-base"]:FetchComponent("Animations")
-	Progress = exports["skdev-base"]:FetchComponent("Progress")
+	Callbacks     = exports["skdev-base"]:FetchComponent("Callbacks")
+	Utils         = exports["skdev-base"]:FetchComponent("Utils")
+	Blips         = exports["skdev-base"]:FetchComponent("Blips")
+	Notification  = exports["skdev-base"]:FetchComponent("Notification")
+	Action        = exports["skdev-base"]:FetchComponent("Action")
+	Polyzone      = exports["skdev-base"]:FetchComponent("Polyzone")
+	Ped           = exports["skdev-base"]:FetchComponent("Ped")
+	Sounds        = exports["skdev-base"]:FetchComponent("Sounds")
+	Targeting     = exports["skdev-base"]:FetchComponent("Targeting")
+	Interaction   = exports["skdev-base"]:FetchComponent("Interaction")
+	ListMenu      = exports["skdev-base"]:FetchComponent("ListMenu")
+	Input         = exports["skdev-base"]:FetchComponent("Input")
+	Apartment     = exports["skdev-base"]:FetchComponent("Apartment")
+	Characters    = exports["skdev-base"]:FetchComponent("Characters")
+	Wardrobe      = exports["skdev-base"]:FetchComponent("Wardrobe")
+	Sync          = exports["skdev-base"]:FetchComponent("Sync")
+	Animations    = exports["skdev-base"]:FetchComponent("Animations")
+	Progress      = exports["skdev-base"]:FetchComponent("Progress")
+end
+
+local function _safe_tonumber(v)
+	local n = tonumber(v)
+	return n
+end
+
+local function BuildRoomsReadyFromConfig()
+	if not Config then return false end
+	Config.RoomsReady = Config.RoomsReady or {}
+
+	-- If RoomsReady already filled, keep it.
+	-- But still build indexes.
+	if type(Config.RoomsReady) == "table" and next(Config.RoomsReady) ~= nil then
+		return true
+	end
+
+	-- Build from GetApartmentDataFromConfig (shared function in config.lua)
+	if type(GetApartmentDataFromConfig) ~= "function" then
+		return false
+	end
+
+	local ok, apartments = pcall(GetApartmentDataFromConfig)
+	if not ok or type(apartments) ~= "table" then
+		return false
+	end
+
+	-- Group into Config.RoomsReady[buildingName][floor] = { room, ... }
+	for _, apt in ipairs(apartments) do
+		if type(apt) == "table" and apt.buildingName ~= nil and apt.floor ~= nil then
+			local buildingName = tostring(apt.buildingName)
+			local floor = _safe_tonumber(apt.floor)
+
+			if floor ~= nil then
+				Config.RoomsReady[buildingName] = Config.RoomsReady[buildingName] or {}
+				Config.RoomsReady[buildingName][floor] = Config.RoomsReady[buildingName][floor] or {}
+
+				local aptId = apt.roomIndex or apt.id or apt.aptId or apt.apartmentId
+				aptId = _safe_tonumber(aptId) or aptId
+
+				local roomLabel = apt.roomLabel or apt.name or apt.label or (aptId and tostring(aptId) or "Room")
+
+				-- Room poly from the same data used by the apartment box
+				local poly = nil
+				if apt.coords and apt.length and apt.width and apt.options then
+					poly = {
+						center = apt.coords,
+						length = apt.length,
+						width = apt.width,
+						options = apt.options,
+					}
+				end
+
+				table.insert(Config.RoomsReady[buildingName][floor], {
+					aptId = aptId,
+					roomLabel = roomLabel,
+					furniture = apt.furniture or {},
+					poly = poly,
+				})
+			end
+		end
+	end
+
+	return true
+end
+
+local function BuildRoomsIndexes()
+	_RoomsIndexByBuildingFloor = {}
+	_RoomMetaByAptId = {}
+
+	if not Config or type(Config.RoomsReady) ~= "table" then
+		return false
+	end
+
+	for buildingName, floors in pairs(Config.RoomsReady) do
+		if type(floors) == "table" then
+			_RoomsIndexByBuildingFloor[buildingName] = _RoomsIndexByBuildingFloor[buildingName] or {}
+
+			for floor, rooms in pairs(floors) do
+				local f = _safe_tonumber(floor) or floor
+				if type(rooms) == "table" then
+					_RoomsIndexByBuildingFloor[buildingName][f] = {}
+
+					-- rooms is expected array-like
+					for _, room in ipairs(rooms) do
+						if type(room) == "table" then
+							local aptId = room.aptId or room.id or room.roomIndex
+							aptId = _safe_tonumber(aptId) or aptId
+
+							table.insert(_RoomsIndexByBuildingFloor[buildingName][f], room)
+
+							if aptId ~= nil then
+								_RoomMetaByAptId[aptId] = {
+									buildingName = buildingName,
+									floor = f,
+									roomLabel = room.roomLabel or room.name or tostring(aptId),
+								}
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+
+	return true
+end
+
+local function EnsureRoomsReady(timeoutMs)
+	timeoutMs = timeoutMs or 8000
+
+	local start = GetGameTimer()
+	while GetGameTimer() - start < timeoutMs do
+		local ok = BuildRoomsReadyFromConfig()
+		if ok then
+			BuildRoomsIndexes()
+			_RoomsReadyBuilt = true
+			return true
+		end
+		Wait(250)
+	end
+
+	return false
+end
+
+local function GetFloorRooms(buildingName, floor)
+	if not _RoomsReadyBuilt then
+		EnsureRoomsReady(1000)
+	end
+
+	if _RoomsIndexByBuildingFloor[buildingName] and _RoomsIndexByBuildingFloor[buildingName][floor] then
+		return _RoomsIndexByBuildingFloor[buildingName][floor]
+	end
+
+	-- fallback direct
+	if Config and Config.RoomsReady and Config.RoomsReady[buildingName] and Config.RoomsReady[buildingName][floor] then
+		return Config.RoomsReady[buildingName][floor]
+	end
+
+	return {}
 end
 
 local function SpawnFurnitureProp(data)
-    local model = joaat(data.model)
-    RequestModel(model)
-    while not HasModelLoaded(model) do
-        Wait(0)
-    end
+	if type(data) ~= "table" or not data.model or data.x == nil or data.y == nil or data.z == nil then
+		return nil
+	end
 
-    local obj = CreateObjectNoOffset(
-        model,
-        data.x,
-        data.y,
-        data.z,
-        false,
-        false,
-        false
-    )
+	local model = joaat(data.model)
+	RequestModel(model)
+	while not HasModelLoaded(model) do
+		Wait(0)
+	end
 
-    SetEntityHeading(obj, data.h or 0.0)
-    FreezeEntityPosition(obj, true)
-    SetEntityInvincible(obj, true)
-    SetEntityCollision(obj, true, true)
-    SetEntityAsMissionEntity(obj, true, true)
+	local obj = CreateObjectNoOffset(model, data.x, data.y, data.z, false, false, false)
 
-    return obj
+	SetEntityHeading(obj, data.h or 0.0)
+	FreezeEntityPosition(obj, true)
+	SetEntityInvincible(obj, true)
+	SetEntityCollision(obj, true, true)
+	SetEntityAsMissionEntity(obj, true, true)
+
+	return obj
 end
 
--- =========================================
--- RECEIVE FLOOR FURNITURE FROM SERVER
--- =========================================
+local function ClearFloorFurniture()
+	if not CurrentFloorKey then
+		_FurnitureSpawned = false
+		return
+	end
+
+	local objs = SpawnedFloorFurniture[CurrentFloorKey]
+	if objs then
+		for _, ent in ipairs(objs) do
+			if DoesEntityExist(ent) then
+				DeleteEntity(ent)
+			end
+		end
+	end
+
+	SpawnedFloorFurniture[CurrentFloorKey] = nil
+	CurrentFloorKey = nil
+	_FurnitureSpawned = false
+end
+
+local function CreateFloorFurniture(buildingName, floor, floordata)
+	if not buildingName or floor == nil then return end
+
+	local floorKey = string.format("%s:%s", buildingName, floor)
+
+	-- Prevent double spawn for same floor
+	if _FurnitureSpawned and CurrentFloorKey == floorKey and SpawnedFloorFurniture[floorKey] and #SpawnedFloorFurniture[floorKey] > 0 then
+		return
+	end
+
+	-- Switching floor => cleanup
+	if CurrentFloorKey ~= nil and CurrentFloorKey ~= floorKey then
+		ClearFloorFurniture()
+	end
+
+	CurrentFloorKey = floorKey
+	SpawnedFloorFurniture[floorKey] = SpawnedFloorFurniture[floorKey] or {}
+
+	-- If no floordata passed, pull from config (Config.RoomsReady)
+	if not floordata or type(floordata) ~= "table" then
+		floordata = GetFloorRooms(buildingName, floor)
+	end
+	if not floordata or type(floordata) ~= "table" then
+		return
+	end
+
+	for _, room in ipairs(floordata) do
+		local furniture = room.furniture
+		if furniture and type(furniture) == "table" then
+			for _, furn in ipairs(furniture) do
+				local obj = SpawnFurnitureProp(furn)
+				if obj then
+					table.insert(SpawnedFloorFurniture[floorKey], obj)
+				end
+			end
+		end
+	end
+
+	_FurnitureSpawned = true
+end
+
+local function QueueSpawnFloorFurniture(buildingName, floor)
+	CreateThread(function()
+		-- Make sure RoomsReady is built (config + indexes)
+		EnsureRoomsReady(8000)
+		CreateFloorFurniture(buildingName, floor, nil)
+	end)
+end
+
+-- Keep event name for compatibility (server may still call it)
 RegisterNetEvent("Apartment:Client:spawnFk", function(buildingName, floor, floordata)
-    CreateFloorFurniture(buildingName, floor, floordata)
+	CreateFloorFurniture(buildingName, floor, floordata)
 end)
 
--- =========================================
--- CREATE ALL FURNITURE FOR A FLOOR
--- =========================================
-function CreateFloorFurniture(buildingName, floor, floordata)
-    ClearFloorFurniture() -- safety cleanup
+local _roomPolyZones = {} -- zoneId => true
 
-    if not floordata or type(floordata) ~= "table" then return end
+local function CreateRoomPolyzonesFromConfig()
+	if not Polyzone or not Polyzone.Create or not Polyzone.Create.Box then
+		return
+	end
 
-    local floorKey = string.format("%s:%s", buildingName, floor)
-    CurrentFloorKey = floorKey
-    SpawnedFloorFurniture[floorKey] = {}
+	if not _RoomsReadyBuilt then
+		EnsureRoomsReady(8000)
+	end
 
-    for _, room in ipairs(floordata) do
-        local furniture = room.furniture
-        if furniture and type(furniture) == "table" then
-            for _, furn in ipairs(furniture) do
-                local obj = SpawnFurnitureProp(furn)
-                if obj then
-                    table.insert(SpawnedFloorFurniture[floorKey], obj)
-                end
-            end
-        end
-    end
+	if not _RoomsReadyBuilt then
+		return
+	end
+
+	for buildingName, floors in pairs(_RoomsIndexByBuildingFloor) do
+		for floor, rooms in pairs(floors) do
+			for _, room in ipairs(rooms) do
+				local aptId = room.aptId or room.id or room.roomIndex
+				aptId = _safe_tonumber(aptId) or aptId
+
+				if room.poly and room.poly.center and room.poly.length and room.poly.width and room.poly.options then
+					local zoneId = string.format("room-%s-%s", buildingName, tostring(aptId))
+					if not _roomPolyZones[zoneId] then
+						Polyzone.Create:Box(zoneId, room.poly.center, room.poly.length, room.poly.width, room.poly.options, {
+							_roomPoly = true,
+							buildingName = buildingName,
+							floor = floor,
+							aptId = aptId,
+						})
+						_roomPolyZones[zoneId] = true
+					end
+				end
+			end
+		end
+	end
 end
 
--- =========================================
--- CLEAR ALL FURNITURE FOR CURRENT FLOOR
--- =========================================
-function ClearFloorFurniture()
-    if not CurrentFloorKey then return end
-
-    local objs = SpawnedFloorFurniture[CurrentFloorKey]
-    if objs then
-        for _, ent in ipairs(objs) do
-            if DoesEntityExist(ent) then
-                DeleteEntity(ent)
-            end
-        end
-    end
-
-    SpawnedFloorFurniture[CurrentFloorKey] = nil
-    CurrentFloorKey = nil
-end
-
-function CreateElevatorPolyzones()
-	if not Config.HotelElevators then
+local function CreateElevatorPolyzones()
+	if not Config or not Config.HotelElevators then
 		return
 	end
 
@@ -122,14 +339,17 @@ function CreateElevatorPolyzones()
 				if type(elevatorData) ~= "table" then
 					goto continue
 				end
+
 				if elevatorData.poly then
 					local zoneId = string.format("elevator-%s-%s-%s", buildingName, floor, elevatorIndex)
 					Polyzone.Create:Box(zoneId, elevatorData.poly.center, elevatorData.poly.length, elevatorData.poly.width, elevatorData.poly.options, {
 						buildingName = buildingName,
 						floor = floor,
-						elevatorIndex = elevatorIndex
+						elevatorIndex = elevatorIndex,
+						_isElevator = true,
 					})
 				end
+
 				::continue::
 			end
 		end
@@ -137,7 +357,7 @@ function CreateElevatorPolyzones()
 end
 
 AddEventHandler("Core:Shared:Ready", function()
-		exports["skdev-base"]:RequestDependencies("Apartment", {
+	exports["skdev-base"]:RequestDependencies("Apartment", {
 		"Callbacks",
 		"Utils",
 		"Blips",
@@ -148,75 +368,76 @@ AddEventHandler("Core:Shared:Ready", function()
 		"Sounds",
 		"Targeting",
 		"Interaction",
-		"Action",
 		"ListMenu",
 		"Input",
 		"Apartment",
 		"Characters",
 		"Wardrobe",
-			"Sync",
-			"Animations",
-			"Progress",
+		"Sync",
+		"Animations",
+		"Progress",
 	}, function(error)
 		if #error > 0 then
 			return
-		end 
-		RetrieveComponents()
-
-		
-		CreateElevatorPolyzones()
-
-		
-		local buildingBlips = {}
-
-		for k, v in ipairs(GlobalState["Apartments"]) do
-			local aptId = string.format("apt-%s", v)
-			local apt = GlobalState[string.format("Apartment:%s", v)]
-
-			
-			Polyzone.Create:Box(aptId, apt.coords, apt.length, apt.width, apt.options, {
-				tier = k
-			})
-
-			
-
-			
-			if apt.buildingName and not buildingBlips[apt.buildingName] then
-				local buildingLabel = apt.buildingLabel or apt.buildingName
-				Blips:Add("apt-building-" .. apt.buildingName, buildingLabel, apt.coords, 475, 25)
-				buildingBlips[apt.buildingName] = true
-			end
-
-			_pzs[aptId] = {
-				name = apt.name,
-				id = apt.id,
-			}
 		end
 
-		
+		RetrieveComponents()
 
-		
+		CreateElevatorPolyzones()
+
+		-- Build room data after 5 sec (requested) then create room polys
+		CreateThread(function()
+			Wait(5000)
+			EnsureRoomsReady(8000)
+			CreateRoomPolyzonesFromConfig()
+		end)
+
+		-- Building blips + apartment polys (globalstate apartments)
+		local buildingBlips = {}
+
+		if GlobalState["Apartments"] then
+			for k, v in ipairs(GlobalState["Apartments"]) do
+				local aptId = string.format("apt-%s", v)
+				local apt = GlobalState[string.format("Apartment:%s", v)]
+				if apt then
+					Polyzone.Create:Box(aptId, apt.coords, apt.length, apt.width, apt.options, {
+						tier = k
+					})
+
+					if apt.buildingName and not buildingBlips[apt.buildingName] then
+						local buildingLabel = apt.buildingLabel or apt.buildingName
+						Blips:Add("apt-building-" .. apt.buildingName, buildingLabel, apt.coords, 475, 25)
+						buildingBlips[apt.buildingName] = true
+					end
+
+					_pzs[aptId] = {
+						name = apt.name,
+						id = apt.id,
+					}
+				end
+			end
+		end
+
+		-- Reception Ped
 		if Config.ReceptionPed then
 			local PedInteraction = exports["skdev-base"]:FetchComponent("PedInteraction")
 			if PedInteraction then
-				
 				RegisterNetEvent("Apartment:Reception:RequestApartment", function()
 					if LocalPlayer.state.Character then
 						local char = LocalPlayer.state.Character
-						local aptId = char:GetData("Apartment") or 0
-						
-						if aptId > 0 then
+						local myAptId = char:GetData("Apartment") or 0
+
+						if myAptId > 0 then
 							Notification:Error("You already have an apartment assigned")
 						else
 							Callbacks:ServerCallback("Apartment:RequestApartment", {}, function(result)
-								if result.success then
+								if result and result.success then
 									local displayLabel = result.roomLabel or result.apartmentId
 									local buildingName = result.buildingName or "Apartment Building"
 									Notification:Success(string.format("You have been assigned Room %s at %s", displayLabel, buildingName))
-									
 									char:SetData("Apartment", result.apartmentId)
 								else
-									Notification:Error(result.message or "Failed to request apartment")
+									Notification:Error((result and result.message) or "Failed to request apartment")
 								end
 							end)
 						end
@@ -226,29 +447,19 @@ AddEventHandler("Core:Shared:Ready", function()
 				RegisterNetEvent("Apartment:Reception:GetMyRoom", function()
 					if LocalPlayer.state.Character then
 						Callbacks:ServerCallback("Apartment:GetMyRoom", {}, function(result)
-							if result.success then
+							if result and result.success then
 								local message = string.format("Your room is %s, Room %s on Floor %s", result.buildingName, result.roomLabel, result.floor)
 								Notification:Info(message)
 							else
-								Notification:Error(result.message or "Unable to find your room information")
+								Notification:Error((result and result.message) or "Unable to find your room information")
 							end
 						end)
 					end
 				end)
 
 				local receptionMenu = {
-					{
-						text = "Request Apartment",
-						event = "Apartment:Reception:RequestApartment",
-						icon = "house",
-						data = {}
-					},
-					{
-						text = "Where's My Room?",
-						event = "Apartment:Reception:GetMyRoom",
-						icon = "map-location-dot",
-						data = {}
-					}
+					{ text = "Request Apartment", event = "Apartment:Reception:RequestApartment", icon = "house", data = {} },
+					{ text = "Where's My Room?", event = "Apartment:Reception:GetMyRoom", icon = "map-location-dot", data = {} },
 				}
 
 				PedInteraction:Add(
@@ -256,27 +467,24 @@ AddEventHandler("Core:Shared:Ready", function()
 					Config.ReceptionPed.model,
 					vector3(Config.ReceptionPed.coords.x, Config.ReceptionPed.coords.y, Config.ReceptionPed.coords.z),
 					Config.ReceptionPed.coords.w or Config.ReceptionPed.coords[4] or 0.0,
-					50.0, 
+					50.0,
 					receptionMenu,
-					"user", 
+					"user",
 					Config.ReceptionPed.scenario,
-					true, 
-					nil, 
-					nil 
+					true,
+					nil,
+					nil
 				)
 			end
 		end
 	end)
 end)
 
-
 AddEventHandler("Proxy:Shared:RegisterReady", function()
 	exports["skdev-base"]:RegisterComponent("Apartment", _APTS)
 end)
 
-
 local _apartmentTargetsSetup = {}
-
 local _apartmentPolyzonesSetup = {}
 
 local function SetupApartmentTargets(aptId, unit)
@@ -284,21 +492,17 @@ local function SetupApartmentTargets(aptId, unit)
 	if not p or not p.interior then
 		return
 	end
-	
-	
+
 	local targetKey = string.format("%s_%s", aptId, unit)
 	local polyzoneKey = string.format("%s_%s", aptId, unit)
-	
-	
-	
+
 	local needPolyzones = not _apartmentPolyzonesSetup[polyzoneKey]
 	local needTargets = not _apartmentTargetsSetup[targetKey]
-	
+
 	if not needTargets and not needPolyzones then
-		return 
+		return
 	end
-	
-	
+
 	Targeting.Zones:AddBox(
 		string.format("apt-%s-raid", aptId),
 		"shield-halved",
@@ -311,11 +515,8 @@ local function SetupApartmentTargets(aptId, unit)
 				icon = "shield-halved",
 				text = "Raid Apartment",
 				event = "Apartment:Client:Raid",
-				data = {
-					aptId = aptId,
-					unit = unit
-				},
-				isEnabled = function(data)
+				data = { aptId = aptId, unit = unit },
+				isEnabled = function()
 					return LocalPlayer.state.onDuty == "police"
 				end,
 			},
@@ -324,7 +525,6 @@ local function SetupApartmentTargets(aptId, unit)
 		true
 	)
 
-	
 	if p.interior.locations.logout then
 		Targeting.Zones:AddBox(
 			string.format("apt-%s-logout", aptId),
@@ -339,8 +539,8 @@ local function SetupApartmentTargets(aptId, unit)
 					text = "Switch Characters",
 					event = "Apartment:Client:Logout",
 					data = unit,
-					isEnabled = function(data)
-						return unit == LocalPlayer.state.Character:GetData("SID")
+					isEnabled = function()
+						return LocalPlayer.state.Character and unit == LocalPlayer.state.Character:GetData("SID")
 					end,
 				},
 			},
@@ -349,7 +549,6 @@ local function SetupApartmentTargets(aptId, unit)
 		)
 	end
 
-	
 	if needPolyzones and p.interior.locations.wardrobe then
 		local wardrobeZoneId = string.format("apt-%s-wardrobe", aptId)
 		Polyzone.Create:Box(wardrobeZoneId, p.interior.locations.wardrobe.coords, p.interior.locations.wardrobe.length, p.interior.locations.wardrobe.width, p.interior.locations.wardrobe.options, {
@@ -358,8 +557,7 @@ local function SetupApartmentTargets(aptId, unit)
 			type = "wardrobe"
 		})
 	end
-	
-	
+
 	if needPolyzones and p.interior.locations.shower then
 		local showerZoneId = string.format("apt-%s-shower", aptId)
 		Polyzone.Create:Box(showerZoneId, p.interior.locations.shower.coords, p.interior.locations.shower.length, p.interior.locations.shower.width, p.interior.locations.shower.options, {
@@ -369,7 +567,6 @@ local function SetupApartmentTargets(aptId, unit)
 		})
 	end
 
-	
 	if p.interior.locations.stash then
 		Targeting.Zones:AddBox(
 			string.format("apt-%s-stash", aptId),
@@ -384,23 +581,20 @@ local function SetupApartmentTargets(aptId, unit)
 					text = "Stash",
 					event = "Apartment:Client:Stash",
 					data = unit,
-					isEnabled = function(data)
+					isEnabled = function()
 						local char = LocalPlayer.state.Character
-						if not char then
-							return false
-						end
-						
+						if not char then return false end
+
 						local mySID = char:GetData("SID")
-						
 						if unit == mySID then
 							return true
 						end
-						
+
 						if LocalPlayer.state.onDuty == "police" then
 							local raidState = GlobalState[string.format("Apartment:Raid:%s", aptId)]
 							return raidState == true
 						end
-						
+
 						return false
 					end,
 				},
@@ -410,7 +604,6 @@ local function SetupApartmentTargets(aptId, unit)
 		)
 	end
 
-	
 	if needTargets then
 		_apartmentTargetsSetup[targetKey] = true
 	end
@@ -422,92 +615,124 @@ local function SetupApartmentTargets(aptId, unit)
 end
 
 RegisterNetEvent("Apartment:Client:InnerStuff", function(aptId, unit, wakeUp)
-	while GlobalState[string.format("%s:Apartment", LocalPlayer.state.ID)] == nil do
+	-- Wait for state to be present (prevents missing targets)
+	local waited = 0
+	while GlobalState[string.format("%s:Apartment", LocalPlayer.state.ID)] == nil and waited < 5000 do
 		Wait(10)
+		waited = waited + 10
 	end
-	
+
 	local p = GlobalState[string.format("Apartment:%s", aptId)]
 	if not p or not p.interior then
 		return
 	end
-	
-	if p.floor and p.buildingName and LocalPlayer.state.inApartment and LocalPlayer.state.inApartment.type == aptId then
-		if _currentFloor ~= p.floor then
-			_currentFloor = p.floor
-			TriggerServerEvent("Apartment:Server:ElevatorFloorChanged", p.buildingName, p.floor)
-		end
+
+	-- Keep current floor for menu disable + furniture
+	if p.floor ~= nil and p.buildingName ~= nil then
+		_currentElevatorBuilding = p.buildingName
+		_currentElevatorFloor = p.floor
+		_currentFloor = p.floor
+
+		-- Spawn floor furniture (player spawned/entered room without using elevator)
+		QueueSpawnFloorFurniture(p.buildingName, p.floor)
 	end
-	
+
 	TriggerEvent("Interiors:Enter", vector3(p.interior.spawn.x, p.interior.spawn.y, p.interior.spawn.z))
 
 	if wakeUp then
 		SetTimeout(250, function()
-			Animations.Emotes:WakeUp(p.interior.wakeup)
+			if Animations and Animations.Emotes and Animations.Emotes.WakeUp then
+				Animations.Emotes:WakeUp(p.interior.wakeup)
+			end
 		end)
 	end
 
-	
 	SetupApartmentTargets(aptId, unit)
 
 	Targeting.Zones:Refresh()
 	Wait(1000)
-	Sync:Stop(1)
+	if Sync then
+		Sync:Stop(1)
+	end
 end)
 
+-- When character spawns, if he is already in apartment, setup targets + furniture for floor
 RegisterNetEvent("Characters:Client:Spawn", function()
 	if not LocalPlayer.state.Character then
 		return
 	end
+
 	local char = LocalPlayer.state.Character
 	local mySID = char:GetData("SID")
-	local aptId = char:GetData("Apartment") or 0
-	
-	if aptId > 0 then
-		local inApartmentState = LocalPlayer.state.inApartment
-		if inApartmentState and inApartmentState.type == aptId and inApartmentState.id == mySID then
-			SetupApartmentTargets(aptId, mySID)
-		end
-	end
-end)
 
+	CreateThread(function()
+		local timeout = GetGameTimer() + 8000
+		while GetGameTimer() < timeout do
+			if LocalPlayer.state.inApartment and LocalPlayer.state.inApartment.type and LocalPlayer.state.inApartment.id then
+				break
+			end
+			Wait(100)
+		end
+
+		local aptState = LocalPlayer.state.inApartment
+		if not aptState or not aptState.type then
+			return
+		end
+
+		local aptId = aptState.type
+
+		if aptState.id == mySID then
+			SetupApartmentTargets(aptId, mySID)
+
+			local p = GlobalState[string.format("Apartment:%s", aptId)]
+			if p and p.buildingName and p.floor ~= nil then
+				_currentElevatorBuilding = p.buildingName
+				_currentElevatorFloor = p.floor
+				_currentFloor = p.floor
+
+				QueueSpawnFloorFurniture(p.buildingName, p.floor)
+			end
+		end
+	end)
+end)
 
 RegisterNetEvent("Characters:Client:Logout", function()
 	_currentFloor = nil
 	_currentElevator = nil
-	
+	_currentElevatorBuilding = nil
+	_currentElevatorFloor = nil
+
+	ClearFloorFurniture()
+
 	if LocalPlayer.state.inApartment then
 		local aptId = LocalPlayer.state.inApartment.type
 		local unit = LocalPlayer.state.inApartment.id
-		
+
 		if aptId then
 			local p = GlobalState[string.format("Apartment:%s", aptId)]
 			if p and p.interior then
-				
-				for k, v in pairs(p.interior.locations) do
+				for k, _ in pairs(p.interior.locations) do
 					Targeting.Zones:RemoveZone(string.format("apt-%s-%s", k, aptId))
 				end
 				Targeting.Zones:RemoveZone(string.format("apt-%s-raid", aptId))
-				
-				
+
 				if p.interior.locations.wardrobe then
 					Polyzone:RemoveZone(string.format("apt-%s-wardrobe", aptId))
 				end
 				if p.interior.locations.shower then
 					Polyzone:RemoveZone(string.format("apt-%s-shower", aptId))
 				end
-				
-				
+
 				if unit then
 					local exitKey = string.format("%s_%s", aptId, unit)
 					_apartmentTargetsSetup[exitKey] = nil
 					_apartmentPolyzonesSetup[exitKey] = nil
 				end
-				
+
 				Targeting.Zones:Refresh()
 			end
 		end
-		
-		
+
 		for buildingName, buildingData in pairs(_floorRaidTargets) do
 			for floor, aptIds in pairs(buildingData) do
 				for _, floorAptId in ipairs(aptIds) do
@@ -517,13 +742,11 @@ RegisterNetEvent("Characters:Client:Logout", function()
 		end
 		_floorRaidTargets = {}
 	end
-	
-	
-	_currentFloor = nil
-	_currentElevator = nil
+
 	_currentWardrobe = nil
 	_currentShower = nil
 	Action:Hide()
+
 	TriggerServerEvent("Apartment:Server:LogoutCleanup")
 end)
 
@@ -531,8 +754,7 @@ AddEventHandler("Apartment:Client:Raid", function(data)
 	if not data or not data.aptId or not data.unit then
 		return
 	end
-	
-	
+
 	Callbacks:ServerCallback("Apartment:Validate", {
 		id = data.aptId,
 		type = "stash",
@@ -540,29 +762,25 @@ AddEventHandler("Apartment:Client:Raid", function(data)
 	})
 end)
 
-
-RegisterNetEvent("Apartment:Client:RaidStateChanged", function(aptId, isRaided)
-	
+RegisterNetEvent("Apartment:Client:RaidStateChanged", function()
 	if Targeting and Targeting.Zones then
 		Targeting.Zones:Refresh()
 	end
 end)
 
-local _floorRaidTargets = {}
+_floorRaidTargets = {}
 
 function CreateFloorRaidTargets(buildingName, floor)
 	if not buildingName or floor == nil then
 		return
 	end
-	
-	
+
 	if _floorRaidTargets[buildingName] and _floorRaidTargets[buildingName][floor] then
 		for _, aptId in ipairs(_floorRaidTargets[buildingName][floor]) do
 			Targeting.Zones:RemoveZone(string.format("apt-%s-raid-floor", aptId))
 		end
 	end
-	
-	
+
 	Callbacks:ServerCallback("Apartment:GetFloorApartments", {
 		buildingName = buildingName,
 		floor = floor
@@ -570,12 +788,10 @@ function CreateFloorRaidTargets(buildingName, floor)
 		if not floorApartments or #floorApartments == 0 then
 			return
 		end
-		
-		
+
 		_floorRaidTargets[buildingName] = _floorRaidTargets[buildingName] or {}
 		_floorRaidTargets[buildingName][floor] = {}
-		
-		
+
 		for _, aptData in ipairs(floorApartments) do
 			local aptId = aptData.aptId
 			local apt = GlobalState[string.format("Apartment:%s", aptId)]
@@ -588,9 +804,8 @@ function CreateFloorRaidTargets(buildingName, floor)
 				elseif apt.coords then
 					doorEntry = apt.coords
 				end
-				
+
 				if doorEntry then
-					
 					Targeting.Zones:AddBox(
 						string.format("apt-%s-raid-floor", aptId),
 						"shield-halved",
@@ -611,7 +826,7 @@ function CreateFloorRaidTargets(buildingName, floor)
 									aptId = aptId,
 									unit = aptData.unit
 								},
-								isEnabled = function(data)
+								isEnabled = function()
 									return LocalPlayer.state.onDuty == "police"
 								end,
 							},
@@ -623,129 +838,142 @@ function CreateFloorRaidTargets(buildingName, floor)
 				end
 			end
 		end
-		
+
 		Targeting.Zones:Refresh()
 	end)
 end
 
+
 AddEventHandler("Polyzone:Enter", function(id, testedPoint, insideZones, data)
-	
-	if data and data.buildingName and data.floor ~= nil then
+	-- Elevator poly -> allow menu + set current building/floor (fix menu disable)
+	if data and data._isElevator and data.buildingName and data.floor ~= nil then
 		_currentElevator = {
 			buildingName = data.buildingName,
 			floor = data.floor,
 			elevatorIndex = data.elevatorIndex
 		}
+		_currentElevatorBuilding = data.buildingName
+		_currentElevatorFloor = data.floor
+
 		Action:Show("{keybind}primary_action{/keybind} Use Elevator")
-		
-		
+
 		CreateFloorRaidTargets(data.buildingName, data.floor)
-	
+
+	-- Room poly -> detect floor by aptId/poly data and spawn floor furniture (only once)
+	elseif data and data._roomPoly and data.aptId ~= nil then
+		local buildingName = data.buildingName
+		local floor = data.floor
+
+		if (buildingName == nil or floor == nil) and _RoomMetaByAptId[data.aptId] then
+			buildingName = _RoomMetaByAptId[data.aptId].buildingName
+			floor = _RoomMetaByAptId[data.aptId].floor
+		end
+
+		if buildingName ~= nil and floor ~= nil then
+			_currentElevatorBuilding = buildingName
+			_currentElevatorFloor = floor
+			_currentFloor = floor
+
+			-- Spawn furniture for that floor (in case player spawned inside room without elevator)
+			QueueSpawnFloorFurniture(buildingName, floor)
+		end
+
 	elseif data and data.type == "wardrobe" then
 		local char = LocalPlayer.state.Character
 		if char and data.unit == char:GetData("SID") then
-			_currentWardrobe = {
-				aptId = data.aptId,
-				unit = data.unit
-			}
+			_currentWardrobe = { aptId = data.aptId, unit = data.unit }
 			Action:Show("{keybind}primary_action{/keybind} Use Wardrobe")
 		end
-	
+
 	elseif data and data.type == "shower" then
 		local char = LocalPlayer.state.Character
 		if char and data.unit == char:GetData("SID") then
-			_currentShower = {
-				aptId = data.aptId,
-				unit = data.unit
-			}
+			_currentShower = { aptId = data.aptId, unit = data.unit }
 			Action:Show("{keybind}primary_action{/keybind} Use Shower")
 		end
-	
-	elseif _pzs[id] and string.format("apt-%s", LocalPlayer.state.Character:GetData("Apartment") or 1) == id then
-		while GetVehiclePedIsIn(LocalPlayer.state.ped) ~= 0 do
-			Wait(10)
-		end
 
-		_inPoly = {
-			id = id,
-			data = data.tier
-		}
+	elseif _pzs[id] then
+		local char = LocalPlayer.state.Character
+		if char then
+			local myApartment = char:GetData("Apartment") or 1
+			local myZone = string.format("apt-%s", myApartment)
+			if myZone == id then
+				while GetVehiclePedIsIn(LocalPlayer.state.ped) ~= 0 do
+					Wait(10)
+				end
+
+				_inPoly = {
+					id = id,
+					data = data and data.tier or nil
+				}
+			end
+		end
 	end
 end)
 
 AddEventHandler("Polyzone:Exit", function(id, testedPoint, insideZones, data)
-	
-	if data and data.buildingName and data.floor ~= nil and _currentElevator and _currentElevator.buildingName == data.buildingName and _currentElevator.floor == data.floor and _currentElevator.elevatorIndex == data.elevatorIndex then
+	if data and data._isElevator and _currentElevator and _currentElevator.buildingName == data.buildingName and _currentElevator.floor == data.floor and _currentElevator.elevatorIndex == data.elevatorIndex then
 		_currentElevator = nil
 		Action:Hide()
-	
+
 	elseif data and data.type == "wardrobe" and _currentWardrobe and _currentWardrobe.aptId == data.aptId then
 		_currentWardrobe = nil
 		Action:Hide()
-	
+
 	elseif data and data.type == "shower" and _currentShower and _currentShower.aptId == data.aptId then
 		_currentShower = nil
 		Action:Hide()
-	
-	elseif id == _inPoly?.id then
+
+	elseif _inPoly and id == _inPoly.id then
 		_inPoly = nil
 		Action:Hide()
 	end
 end)
 
-
 AddEventHandler("Keybinds:Client:KeyUp:primary_action", function()
 	if _currentElevator and _currentElevator.buildingName and Config.HotelElevators and Config.HotelElevators[_currentElevator.buildingName] then
 		OpenElevatorMenu(_currentElevator.buildingName)
 	elseif _currentWardrobe then
-		
 		Apartment.Extras:Wardrobe()
 	elseif _currentShower then
-		
 		TriggerEvent("Apartment:Client:Shower", _currentShower.unit)
 	end
 end)
 
 function OpenElevatorMenu(buildingName)
-	local elevatorFloors = Config.HotelElevators[buildingName]
+	local elevatorFloors = Config.HotelElevators and Config.HotelElevators[buildingName]
 	local floorDescriptions = Config.HotelElevatorsDesc and Config.HotelElevatorsDesc[buildingName] or {}
-	
+
 	if not elevatorFloors then
 		return
 	end
 
-	
 	local buildingLabel = buildingName
 	if Config.HotelRooms and Config.HotelRooms[buildingName] and Config.HotelRooms[buildingName].label then
 		buildingLabel = Config.HotelRooms[buildingName].label
 	end
 
 	local menu = {
-		main = {
-			label = buildingLabel,
-			items = {}
-		}
+		main = { label = buildingLabel, items = {} }
 	}
 
-	
 	local sortedFloors = {}
 	for floorId, _ in pairs(elevatorFloors) do
 		table.insert(sortedFloors, floorId)
 	end
 	table.sort(sortedFloors, function(a, b) return a < b end)
 
-	
 	for _, floorId in ipairs(sortedFloors) do
 		local isDisabled = false
 		local description = nil
 
-		if _currentFloor == floorId and LocalPlayer.state.inApartment then
+		-- FIX: disable based on actual current elevator position (not "my apartment floor")
+		if _currentElevatorBuilding == buildingName and _currentElevatorFloor ~= nil and floorId == _currentElevatorFloor then
 			isDisabled = true
 			description = "You are currently on this floor"
 		end
 
-		
-		local floorLabel = floorDescriptions[floorId] or ("Floor " .. floorId)
+		local floorLabel = floorDescriptions[floorId] or ("Floor " .. tostring(floorId))
 		if floorId == 0 then
 			floorLabel = floorDescriptions[0] or "Lobby"
 		end
@@ -756,10 +984,7 @@ function OpenElevatorMenu(buildingName)
 			disabled = isDisabled,
 			description = description,
 			event = "Apartment:Client:UseElevator",
-			data = {
-				buildingName = buildingName,
-				floor = floorId
-			}
+			data = { buildingName = buildingName, floor = floorId }
 		})
 	end
 
@@ -767,26 +992,24 @@ function OpenElevatorMenu(buildingName)
 end
 
 AddEventHandler("Apartment:Client:UseElevator", function(data)
-	if not data or not data.buildingName or not data.floor then
+	if not data or not data.buildingName or data.floor == nil then
 		return
 	end
 
-	local elevatorFloors = Config.HotelElevators[data.buildingName]
+	local elevatorFloors = Config.HotelElevators and Config.HotelElevators[data.buildingName]
 	if not elevatorFloors or not elevatorFloors[data.floor] then
 		return
 	end
 
-	
 	local floorElevators = elevatorFloors[data.floor]
-	local targetElevator = floorElevators[1] 
-	
+	local targetElevator = floorElevators and floorElevators[1] or nil
 	if not targetElevator or not targetElevator.pos then
 		return
 	end
 
 	ListMenu:Close()
 
-	
+	-- small shake
 	CreateThread(function()
 		local shakeDuration = 800
 		local startTime = GetGameTimer()
@@ -798,53 +1021,53 @@ AddEventHandler("Apartment:Client:UseElevator", function(data)
 
 	Wait(800)
 
-	
 	DoScreenFadeOut(1200)
 	while not IsScreenFadedOut() do Wait(10) end
-
 	Wait(300)
 
-	
 	SetEntityCoords(LocalPlayer.state.ped, targetElevator.pos.x, targetElevator.pos.y, targetElevator.pos.z)
 	SetEntityHeading(LocalPlayer.state.ped, targetElevator.pos.w or 0.0)
-	
-	
-	Sounds.Play:Distance(5.0, "elevator-bell.ogg", 0.4)
-	
+
+	if Sounds and Sounds.Play and Sounds.Play.Distance then
+		Sounds.Play:Distance(5.0, "elevator-bell.ogg", 0.4)
+	end
+
 	Wait(200)
-	
 	DoScreenFadeIn(1200)
 
-	
+	-- Update current elevator position (menu disable)
+	_currentElevatorBuilding = data.buildingName
+	_currentElevatorFloor = data.floor
+	_currentFloor = data.floor
+
+	-- Trigger server route change
 	TriggerServerEvent("Apartment:Server:ElevatorFloorChanged", data.buildingName, data.floor)
-	
-	
+
+	-- Spawn floor furniture immediately from config (requested)
+	QueueSpawnFloorFurniture(data.buildingName, data.floor)
+	TriggerEvent("Apartment:Client:spawnFk", data.buildingName, data.floor, nil)
+
+	-- Update floor raid targets
 	CreateFloorRaidTargets(data.buildingName, data.floor)
 
+	-- If this is player's apartment floor, trigger inner stuff
 	if LocalPlayer.state.Character then
 		local char = LocalPlayer.state.Character
 		local mySID = char:GetData("SID")
-		local aptId = char:GetData("Apartment") or 0
-		
-		if aptId > 0 then
-			local apt = GlobalState[string.format("Apartment:%s", aptId)]
-			-- If this is the player's apartment floor, set _currentFloor (this IS their apartment)
+		local myAptId = char:GetData("Apartment") or 0
+
+		if myAptId > 0 then
+			local apt = GlobalState[string.format("Apartment:%s", myAptId)]
 			if apt and apt.buildingName == data.buildingName and apt.floor == data.floor then
-				_currentFloor = data.floor
-				
 				local inApartmentState = LocalPlayer.state.inApartment
-				if inApartmentState and inApartmentState.type == aptId and inApartmentState.id == mySID then
-					
-					TriggerEvent("Apartment:Client:InnerStuff", aptId, mySID, false)
+				if inApartmentState and inApartmentState.type == myAptId and inApartmentState.id == mySID then
+					TriggerEvent("Apartment:Client:InnerStuff", myAptId, mySID, false)
 				end
-			else
-				_currentFloor = nil
 			end
-		else
-			_currentFloor = nil
 		end
 	end
 end)
+
 
 AddEventHandler("Apartment:Client:Enter", function(data)
 	Apartment:Enter(data)
@@ -856,9 +1079,7 @@ AddEventHandler("Apartment:Client:RequestEntry", function(data)
 			id = "unit",
 			type = "number",
 			options = {
-				inputProps = {
-					maxLength = 4,
-				},
+				inputProps = { maxLength = 4 },
 			},
 		},
 	}, "Apartment:Client:DoRequestEntry", _inPoly)
@@ -871,14 +1092,13 @@ AddEventHandler("Apartment:Client:DoRequestEntry", function(values, data)
 	})
 end)
 
-AddEventHandler("Apartment:Client:Stash", function(t, data)
+AddEventHandler("Apartment:Client:Stash", function()
 	Apartment.Extras:Stash()
 end)
 
-AddEventHandler("Apartment:Client:Wardrobe", function(t, data)
+AddEventHandler("Apartment:Client:Wardrobe", function()
 	Apartment.Extras:Wardrobe()
 end)
-
 
 local function LoadPtfxAsset(assetName)
 	if not HasNamedPtfxAssetLoaded(assetName) then
@@ -889,28 +1109,18 @@ local function LoadPtfxAsset(assetName)
 	end
 end
 
-local _showerParticles = {} 
-
 local function StartShowerParticle(showerHeadPos, aptId)
 	LoadPtfxAsset("core")
-	
-	
+
 	UseParticleFxAssetNextCall("core")
 	_showerParticle = StartParticleFxLoopedAtCoord(
 		"ent_sht_steam",
-		showerHeadPos.x,
-		showerHeadPos.y,
-		showerHeadPos.z,
-		-180.0,
-		0.0,
-		0.0,
+		showerHeadPos.x, showerHeadPos.y, showerHeadPos.z,
+		-180.0, 0.0, 0.0,
 		1.0,
-		false,
-		false,
-		false
+		false, false, false
 	)
-	
-	
+
 	TriggerServerEvent("Apartment:Server:StartShowerParticle", showerHeadPos, aptId)
 end
 
@@ -922,28 +1132,21 @@ local function StopShowerParticle()
 	TriggerServerEvent("Apartment:Server:StopShowerParticle")
 end
 
-
 RegisterNetEvent("Apartment:Client:StartShowerParticle", function(source, showerHeadPos, aptId)
 	if source == LocalPlayer.state.ID then
-		return 
+		return
 	end
-	
+
 	LoadPtfxAsset("core")
 	UseParticleFxAssetNextCall("core")
 	local particle = StartParticleFxLoopedAtCoord(
 		"ent_sht_steam",
-		showerHeadPos.x,
-		showerHeadPos.y,
-		showerHeadPos.z,
-		-180.0,
-		0.0,
-		0.0,
+		showerHeadPos.x, showerHeadPos.y, showerHeadPos.z,
+		-180.0, 0.0, 0.0,
 		1.0,
-		false,
-		false,
-		false
+		false, false, false
 	)
-	
+
 	_showerParticles[source] = particle
 end)
 
@@ -957,30 +1160,27 @@ end)
 local function PlayShowerAnimation()
 	local playerPed = LocalPlayer.state.ped
 	local animDict = "anim@mp_yacht@shower@male@"
-	
-	
+
 	if not HasAnimDictLoaded(animDict) then
 		RequestAnimDict(animDict)
 		while not HasAnimDictLoaded(animDict) do
 			Wait(1)
 		end
 	end
-	
+
 	CreateThread(function()
 		while _isShowering do
 			TaskPlayAnim(playerPed, animDict, "male_shower_idle_d", 8.0, -8.0, 5.0, 0, 0.0, 0, 0, 0)
 			Wait(GetAnimDuration(animDict, "male_shower_idle_d") * 1000)
+
 			if not _isShowering then break end
-			
 			TaskPlayAnim(playerPed, animDict, "male_shower_idle_a", 8.0, -8.0, 5.0, 0, 0.0, 0, 0, 0)
 			Wait(GetAnimDuration(animDict, "male_shower_idle_a") * 1000)
+
 			if not _isShowering then break end
-			
 			TaskPlayAnim(playerPed, animDict, "male_shower_idle_c", 8.0, -8.0, 5.0, 0, 0.0, 0, 0, 0)
 			Wait(GetAnimDuration(animDict, "male_shower_idle_c") * 1000)
 		end
-		
-		
 		RemoveAnimDict(animDict)
 	end)
 end
@@ -989,23 +1189,20 @@ function TakeShower(aptId, showerHeadPos, showerTime)
 	if not showerHeadPos then
 		showerHeadPos = GetEntityCoords(LocalPlayer.state.ped) + vector3(0.0, 0.0, 1.0)
 	end
-	
+
 	if not aptId then
 		Notification:Error("Can't start showering without an apartment ID")
 		return
 	end
-	
-	
+
 	_isShowering = true
 	StartShowerParticle(showerHeadPos, aptId)
 	PlayShowerAnimation()
-	
-	
+
 	local defaultShowerTime = (showerTime or 2) * 60 * 1000
-	
-	
+
 	Progress:Progress({
-		name = "apartment_shower_" .. aptId,
+		name = "apartment_shower_" .. tostring(aptId),
 		duration = defaultShowerTime,
 		label = "Showering",
 		useWhileDead = false,
@@ -1023,23 +1220,17 @@ function TakeShower(aptId, showerHeadPos, showerTime)
 		},
 	}, function(success)
 		_isShowering = false
-		
-		
 		StopShowerParticle()
-		
-		
 		ClearPedTasks(LocalPlayer.state.ped)
-		
+
 		if success then
-			
 			ClearPedBloodDamage(LocalPlayer.state.ped)
 			ClearPedEnvDirt(LocalPlayer.state.ped)
-			
-			
+
 			if LocalPlayer.state.GSR then
 				LocalPlayer.state:set("GSR", nil, true)
 			end
-			
+
 			Notification:Success("You feel clean and refreshed!", 5000)
 		else
 			Notification:Info("Shower cancelled", 3000)
@@ -1051,107 +1242,103 @@ AddEventHandler("Apartment:Client:Shower", function(unit)
 	if not LocalPlayer.state.Character or LocalPlayer.state.Character:GetData("SID") ~= unit then
 		return
 	end
-	
+
 	if _isShowering then
 		Notification:Error("You are already showering", 3000)
 		return
 	end
-	
-	
-	local aptId = LocalPlayer.state.inApartment and LocalPlayer.state.inApartment.type
+
+	local aptId = LocalPlayer.state.inApartment and LocalPlayer.state.inApartment.type or nil
 	if not aptId then
 		Notification:Error("You must be in your apartment to shower", 3000)
 		return
 	end
-	
+
 	local p = GlobalState[string.format("Apartment:%s", aptId)]
 	if not p or not p.interior or not p.interior.locations or not p.interior.locations.shower then
 		Notification:Error("Shower location not found", 3000)
 		return
 	end
-	
+
 	local showerPos = p.interior.locations.shower.coords
 	local showerHeadPos = vector3(showerPos.x, showerPos.y, showerPos.z + 1.0)
-	
-	
-	TakeShower(aptId, showerHeadPos, 2) 
+
+	TakeShower(aptId, showerHeadPos, 2)
 end)
 
-AddEventHandler("Apartment:Client:Logout", function(t, data)
+AddEventHandler("Apartment:Client:Logout", function()
 	Apartment.Extras:Logout()
 end)
 
+
 _APTS = {
 	Enter = function(self, tier, id)
-		
-		
 		Callbacks:ServerCallback("Apartment:Enter", {
 			id = id or -1,
 			tier = tier,
 		}, function(s)
-			if s then
+			if s and Sounds and Sounds.Play and Sounds.Play.One then
 				Sounds.Play:One("door_open.ogg", 0.15)
-				
 			end
 		end)
 	end,
-	Exit = function(self)
-		local apartmentId = GlobalState[string.format("%s:Apartment", LocalPlayer.state.ID)]
-		local p = GlobalState[string.format(
-			"Apartment:%s",
-			LocalPlayer.state.inApartment.type
-		)]
 
+	Exit = function(self)
+		local p = GlobalState[string.format("Apartment:%s", LocalPlayer.state.inApartment and LocalPlayer.state.inApartment.type or "")]
 		if not p then return end
 
 		Callbacks:ServerCallback("Apartment:Exit", {}, function()
-			
 			TriggerEvent("Interiors:Exit")
-			Sync:Start()
+			if Sync then Sync:Start() end
 
-			Sounds.Play:One("door_close.ogg", 0.3)
+			if Sounds and Sounds.Play and Sounds.Play.One then
+				Sounds.Play:One("door_close.ogg", 0.3)
+			end
 
-			
-			for k, v in pairs(p.interior.locations) do
-				Targeting.Zones:RemoveZone(string.format("apt-%s-%s", k, LocalPlayer.state.inApartment.type))
+			-- cleanup targets
+			if LocalPlayer.state.inApartment and LocalPlayer.state.inApartment.type then
+				local aptId = LocalPlayer.state.inApartment.type
+				for k, _ in pairs(p.interior.locations) do
+					Targeting.Zones:RemoveZone(string.format("apt-%s-%s", k, aptId))
+				end
+				Targeting.Zones:RemoveZone(string.format("apt-%s-raid", aptId))
+
+				if p.interior.locations.wardrobe then
+					Polyzone:RemoveZone(string.format("apt-%s-wardrobe", aptId))
+				end
+				if p.interior.locations.shower then
+					Polyzone:RemoveZone(string.format("apt-%s-shower", aptId))
+				end
+
+				local exitAptId = aptId
+				local exitUnit = LocalPlayer.state.inApartment.id
+				if exitAptId and exitUnit then
+					local exitKey = string.format("%s_%s", exitAptId, exitUnit)
+					_apartmentTargetsSetup[exitKey] = nil
+					_apartmentPolyzonesSetup[exitKey] = nil
+				end
 			end
-			
-			Targeting.Zones:RemoveZone(string.format("apt-%s-raid", LocalPlayer.state.inApartment.type))
-			
-			
-			if p.interior.locations.wardrobe then
-				Polyzone:RemoveZone(string.format("apt-%s-wardrobe", LocalPlayer.state.inApartment.type))
-			end
-			if p.interior.locations.shower then
-				Polyzone:RemoveZone(string.format("apt-%s-shower", LocalPlayer.state.inApartment.type))
-			end
-			
-			
-			local exitAptId = LocalPlayer.state.inApartment.type
-			local exitUnit = LocalPlayer.state.inApartment.id
-			if exitAptId and exitUnit then
-				local exitKey = string.format("%s_%s", exitAptId, exitUnit)
-				_apartmentTargetsSetup[exitKey] = nil
-				_apartmentPolyzonesSetup[exitKey] = nil
-			end
-			
-			
+
 			_currentWardrobe = nil
 			_currentShower = nil
 			_currentFloor = nil
 			_currentElevator = nil
 			Action:Hide()
 
+			-- Leaving apartment => clear furniture
+			ClearFloorFurniture()
+
 			Targeting.Zones:Refresh()
 		end)
 	end,
+
 	GetNearApartment = function(self)
-		if _inPoly?.id ~= nil and _pzs[_inPoly?.id]?.id ~= nil then
-			return GlobalState[string.format("Apartment:%s", _pzs[_inPoly?.id].id)]
-		else
-			return nil
+		if _inPoly and _inPoly.id and _pzs[_inPoly.id] and _pzs[_inPoly.id].id then
+			return GlobalState[string.format("Apartment:%s", _pzs[_inPoly.id].id)]
 		end
+		return nil
 	end,
+
 	Extras = {
 		Stash = function(self)
 			Callbacks:ServerCallback("Apartment:Validate", {
@@ -1159,6 +1346,7 @@ _APTS = {
 				type = "stash",
 			})
 		end,
+
 		Wardrobe = function(self)
 			Callbacks:ServerCallback("Apartment:Validate", {
 				id = GlobalState[string.format("%s:Apartment", LocalPlayer.state.ID)],
@@ -1169,6 +1357,7 @@ _APTS = {
 				end
 			end)
 		end,
+
 		Logout = function(self)
 			Callbacks:ServerCallback("Apartment:Validate", {
 				id = GlobalState[string.format("%s:Apartment", LocalPlayer.state.ID)],
@@ -1182,87 +1371,11 @@ _APTS = {
 	},
 }
 
-
 RegisterNetEvent("Apartment:Client:ExitElevator", function()
-	
+	ClearFloorFurniture()
+
 	TriggerEvent("Interiors:Exit")
 	if Sync then
 		Sync:Start()
 	end
 end)
-
-
--- RegisterCommand("raycastDoorRooms", function()
---     lib.showTextUI("Aim at a door\nPress [E] to save room\nPress [Esc] to cancel")
-
---     local roomNumber = 101
---     local maxRoom = 119
-
---     CreateThread(function()
---         while true do
---             Wait(0)
---             DisablePlayerFiring(PlayerId(), true)
-
---             if roomNumber > maxRoom then
---                 lib.hideTextUI()
---                 print("✅ Finished saving rooms 101 → 119")
---                 break
---             end
-
---             -- Raycast (objects only)
---             local hit, entity = lib.raycast.cam(16)
-
---             if hit and entity ~= 0 and DoesEntityExist(entity) then
---                 -- Must be an object
---                 if GetEntityType(entity) == 3 then
---                     local model = GetEntityModel(entity)
-
---                     -- Ensure it's a door
---                     if DoorSystemGetDoorState(model) ~= nil then
---                         local coords = GetEntityCoords(entity)
---                         local heading = GetEntityHeading(entity)
-
---                         -- Marker on door
---                         DrawMarker(
---                             1,
---                             coords.x, coords.y, coords.z + 1.0,
---                             0.0, 0.0, 0.0,
---                             0.0, 0.0, 0.0,
---                             0.3, 0.3, 0.3,
---                             0, 200, 255, 150,
---                             false, true, 2, nil, nil, false
---                         )
-
---                         -- Press E
---                         if IsControlJustPressed(0, 38) then
---                             local roomName = string.format("room %d", roomNumber)
-
---                             print("========== DOOR ==========")
---                             print(string.format('name = "%s",', roomName))
---                             print(string.format("model = %s,", model))
---                             print(string.format(
---                                 "coords = vector3(%.6f, %.6f, %.6f),",
---                                 coords.x, coords.y, coords.z
---                             ))
---                             print(string.format(
---                                 "heading = %.6f,",
---                                 heading
---                             ))
---                             print("==========================")
-
---                             roomNumber = roomNumber + 1
---                             Wait(500)
---                         end
---                     end
---                 end
---             end
-
---             -- ESC
---             if IsControlJustPressed(0, 322) then
---                 lib.hideTextUI()
---                 print("❌ Canceled at room", roomNumber)
---                 break
---             end
---         end
---     end)
--- end)

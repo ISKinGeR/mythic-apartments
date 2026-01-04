@@ -4,6 +4,8 @@ _aptDataByRoomId = {}
 _availableApartments = {}
 _assignedApartments = {} 
 _apartmentAssignments = {} 
+_reservedApartments = {} -- aptId = true
+
 
 
 if _raidedApartments then
@@ -12,11 +14,11 @@ end
 
 function Startup()
 	if not Logger then
-		Logger = exports["mythic-base"]:FetchComponent("Logger")
+		Logger = exports["skdev-base"]:FetchComponent("Logger")
 	end
 	
 	if not Database then
-		Database = exports["mythic-base"]:FetchComponent("Database")
+		Database = exports["skdev-base"]:FetchComponent("Database")
 	end
 	
 	
@@ -157,150 +159,86 @@ end
 
 function UpdateAvailableApartments(showDebug)
 	_availableApartments = {}
-	
-	if not _aptData then
-		return
-	end
-	
-	if not _assignedApartments then
-		_assignedApartments = {}
-	end
-	
-	
-	local localAssignedCount = 0
-	for _ in pairs(_assignedApartments) do
-		localAssignedCount = localAssignedCount + 1
-	end
-	
-	
-	local dbAssignedAptIds = {}
-	if showDebug and Database then
-		local p = promise.new()
-		Database.Game:find({
-			collection = "apartment_assignments",
-			query = {}
-		}, function(success, assignments)
-			if success and assignments then
-				local dbAssignedCount = #assignments
-				
-				
-				for _, assignment in ipairs(assignments) do
-					if assignment.apartmentId then
-						dbAssignedAptIds[assignment.apartmentId] = true
-					end
-				end
-			end
-			p:resolve(true)
-		end)
-		Citizen.Await(p)
-	end
-	
-	
-	local assignedAptIds = {}
-	if showDebug and next(dbAssignedAptIds) ~= nil then
-		
-		local dbCount = 0
-		for _ in pairs(dbAssignedAptIds) do
-			dbCount = dbCount + 1
-		end
-		if dbCount ~= localAssignedCount then
-			
-			_assignedApartments = {}
-			_apartmentAssignments = {}
-			
-			
-			if Database then
-				local p2 = promise.new()
-				Database.Game:find({
-					collection = "apartment_assignments",
-					query = {}
-				}, function(success, assignments)
-					if success and assignments then
-						for _, assignment in ipairs(assignments) do
-							if assignment.apartmentId and assignment.characterSID then
-								_assignedApartments[assignment.apartmentId] = {
-									characterSID = assignment.characterSID,
-									characterID = assignment.characterID,
-									assignedAt = assignment.assignedAt or (os.time() * 1000)
-								}
-								local charSID = assignment.characterSID
-								_apartmentAssignments[charSID] = assignment.apartmentId
-								_apartmentAssignments[tostring(charSID)] = assignment.apartmentId
-								if tonumber(charSID) then
-									_apartmentAssignments[tonumber(charSID)] = assignment.apartmentId
-								end
-							end
-						end
-					end
-					p2:resolve(true)
-				end)
-				Citizen.Await(p2)
-			end
-			
-			
-			assignedAptIds = dbAssignedAptIds
-		else
-			
-			for aptId, _ in pairs(_assignedApartments) do
-				assignedAptIds[aptId] = true
-			end
-		end
-	else
-		
-		for aptId, _ in pairs(_assignedApartments) do
-			assignedAptIds[aptId] = true
+
+	if not _aptData then return end
+	if not _assignedApartments then _assignedApartments = {} end
+	if not _reservedApartments then _reservedApartments = {} end
+
+	for aptId, _ in ipairs(_aptData) do
+		if not _assignedApartments[aptId] and not _reservedApartments[aptId] then
+			table.insert(_availableApartments, aptId)
 		end
 	end
-	
-	for _, aptData in ipairs(_aptData) do
-		if aptData and aptData.id then
-			if not assignedAptIds[aptData.id] then
-			table.insert(_availableApartments, aptData.id)
-			end
-		end
-	end
-	
-	GlobalState["AvailableApartments"] = _availableApartments
 end
+
 
 
 function AssignApartmentToCharacter(apartmentId, characterID, characterSID)
+	if not apartmentId or not characterID or not characterSID then
+		return false
+	end
+
 	if _assignedApartments[apartmentId] then
-		return false 
+		return false
 	end
-	
-	if _apartmentAssignments[characterSID] then
-		return false 
+
+	_assignedApartments[apartmentId] = {
+		characterSID = characterSID,
+		characterID = characterID,
+		assignedAt = os.time() * 1000
+	}
+
+	_apartmentAssignments[characterSID] = apartmentId
+	_apartmentAssignments[tostring(characterSID)] = apartmentId
+	if tonumber(characterSID) then
+		_apartmentAssignments[tonumber(characterSID)] = apartmentId
 	end
-	
-	
-	local p = promise.new()
-	Database.Game:insertOne({
-		collection = "apartment_assignments",
-		document = {
-			apartmentId = apartmentId,
-			characterID = characterID,
-			characterSID = characterSID,
-			assignedAt = os.time() * 1000
-		}
-	}, function(success)
-		if success then
-			_assignedApartments[apartmentId] = {
-				characterSID = characterSID,
+
+	_reservedApartments[apartmentId] = nil
+
+	if Database then
+		Database.Game:insertOne({
+			collection = "apartment_assignments",
+			document = {
+				apartmentId = apartmentId,
 				characterID = characterID,
+				characterSID = characterSID,
 				assignedAt = os.time() * 1000
 			}
-			_apartmentAssignments[characterSID] = apartmentId
-			UpdateAvailableApartments()
-			p:resolve(true)
-		else
-			p:resolve(false)
-		end
-	end)
-	
-	return Citizen.Await(p)
+		}, function(success)
+			if not success then
+				_assignedApartments[apartmentId] = nil
+				_apartmentAssignments[characterSID] = nil
+				_apartmentAssignments[tostring(characterSID)] = nil
+				if tonumber(characterSID) then
+					_apartmentAssignments[tonumber(characterSID)] = nil
+				end
+
+				_reservedApartments[apartmentId] = nil
+				UpdateAvailableApartments(true)
+			end
+		end)
+	end
+
+	UpdateAvailableApartments()
+	return true
 end
 
+function GetAvailableApartmentsByFloor()
+	local floors = {}
+
+	for _, aptId in ipairs(_availableApartments) do
+		if not _assignedApartments[aptId] and not _reservedApartments[aptId] then
+			local apt = _aptData[aptId]
+			if apt and apt.floor then
+				floors[apt.floor] = floors[apt.floor] or {}
+				table.insert(floors[apt.floor], aptId)
+			end
+		end
+	end
+
+	return floors
+end
 
 function ReleaseApartmentAssignment(apartmentId, characterSID, silent)
 	if not _assignedApartments[apartmentId] then
@@ -397,13 +335,35 @@ end
 
 
 function GetRandomAvailableApartment()
-	if _availableApartments and #_availableApartments > 0 then
-		local randomIndex = math.random(1, #_availableApartments)
-		local aptId = _availableApartments[randomIndex]
-		return aptId
+	if not _availableApartments or #_availableApartments == 0 then
+		return nil
 	end
-	return nil 
+
+	local byFloor = GetAvailableApartmentsByFloor()
+	if not byFloor then return nil end
+
+	-- sort floors ASC (1 → 20)
+	local floorList = {}
+	for floor, _ in pairs(byFloor) do
+		table.insert(floorList, floor)
+	end
+	table.sort(floorList)
+
+	-- pick FIRST available room on LOWEST floor
+	for _, floor in ipairs(floorList) do
+		local rooms = byFloor[floor]
+		if rooms and #rooms > 0 then
+			local aptId = rooms[1]
+
+			-- HARD LOCK
+			_reservedApartments[aptId] = true
+			return aptId
+		end
+	end
+
+	return nil
 end
+
 
 
 function IsApartmentAvailable(apartmentId)

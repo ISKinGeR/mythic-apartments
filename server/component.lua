@@ -4,24 +4,24 @@ _raidedApartments = {}
 
 AddEventHandler("Apartment:Shared:DependencyUpdate", RetrieveComponents)
 function RetrieveComponents()
-	Fetch = exports["mythic-base"]:FetchComponent("Fetch")
-	Middleware = exports["mythic-base"]:FetchComponent("Middleware")
-	Callbacks = exports["mythic-base"]:FetchComponent("Callbacks")
-	Logger = exports["mythic-base"]:FetchComponent("Logger")
-	Routing = exports["mythic-base"]:FetchComponent("Routing")
-	Inventory = exports["mythic-base"]:FetchComponent("Inventory")
-	Apartment = exports["mythic-base"]:FetchComponent("Apartment")
-	Police = exports["mythic-base"]:FetchComponent("Police")
-	Pwnzor = exports["mythic-base"]:FetchComponent("Pwnzor")
-	Doors = exports["mythic-base"]:FetchComponent("Doors")
-	Phone = exports["mythic-base"]:FetchComponent("Phone")
+	Fetch = exports["skdev-base"]:FetchComponent("Fetch")
+	Middleware = exports["skdev-base"]:FetchComponent("Middleware")
+	Callbacks = exports["skdev-base"]:FetchComponent("Callbacks")
+	Logger = exports["skdev-base"]:FetchComponent("Logger")
+	Routing = exports["skdev-base"]:FetchComponent("Routing")
+	Inventory = exports["skdev-base"]:FetchComponent("Inventory")
+	Apartment = exports["skdev-base"]:FetchComponent("Apartment")
+	Police = exports["skdev-base"]:FetchComponent("Police")
+	Pwnzor = exports["skdev-base"]:FetchComponent("Pwnzor")
+	Doors = exports["skdev-base"]:FetchComponent("Doors")
+	Phone = exports["skdev-base"]:FetchComponent("Phone")
 	if Middleware then
 		RegisterMiddleware()
 	end
 end
 
 AddEventHandler("Core:Shared:Ready", function()
-	exports["mythic-base"]:RequestDependencies("Apartment", {
+	exports["skdev-base"]:RequestDependencies("Apartment", {
 		"Fetch",
 		"Middleware",
 		"Callbacks",
@@ -82,7 +82,7 @@ AddEventHandler("Core:Shared:Ready", function()
 end)
 
 AddEventHandler("Proxy:Shared:RegisterReady", function()
-	exports["mythic-base"]:RegisterComponent("Apartment", _APTS)
+	exports["skdev-base"]:RegisterComponent("Apartment", _APTS)
 end)
 
 
@@ -306,7 +306,7 @@ function SendApartmentAssignmentEmail(source, apartmentId, characterSID)
 	
 	
 	if not Phone then
-		Phone = exports["mythic-base"]:FetchComponent("Phone")
+		Phone = exports["skdev-base"]:FetchComponent("Phone")
 	end
 	
 	if not Phone or not Phone.Email then
@@ -356,7 +356,7 @@ function AssignApartmentToCharacter(apartmentId, characterID, characterSID)
 	end
 	
 	if not Database then
-		Database = exports["mythic-base"]:FetchComponent("Database")
+		Database = exports["skdev-base"]:FetchComponent("Database")
 	end
 	
 	if not Database then

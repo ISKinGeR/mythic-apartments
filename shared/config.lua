@@ -8,9 +8,11 @@ Config.ReceptionPed = {
     scenario = "WORLD_HUMAN_CLIPBOARD", -- Ped scenario/animation
 }
 Config.ox_doorlock = {
-    first = 1898, -- must be updated depend on your ox_doorlock
-    last = 2277, -- must be updated depend on your ox_doorlock
+    first = 1898,
+    last = 2277,
 }
+
+Config.RoomsReady = {}
 
 -- =======================
 -- DOORS FLOOR 1
@@ -563,6 +565,6 @@ function GetApartmentDataFromConfig()
 			#apartments, apartments[1].doorId, apartments[#apartments].doorId, doorEnd
 		))
 	end
-
+	Config.RoomsReady = apartments
 	return apartments
 end
